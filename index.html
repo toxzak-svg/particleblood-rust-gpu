@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Particle Love</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <canvas id="app" aria-label="Interactive particle field"></canvas>
+    <div class="hud">
+      <div class="panel" id="controlPanel">
+        <div class="panel-head">
+          <div class="panel-title">Controls</div>
+          <button
+            type="button"
+            id="panelToggle"
+            class="panel-toggle"
+            aria-controls="panelBody"
+            aria-expanded="true"
+          >
+            Collapse
+          </button>
+        </div>
+        <div class="panel-body" id="panelBody">
+          <div class="row" hidden>
+            <span class="label">Mood</span>
+            <div class="seg" id="moodSeg">
+              <button type="button" data-mood="fluid" class="is-active">Fluid</button>
+              <button type="button" data-mood="magnetic">Magnetic</button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="label">Brush</span>
+            <div class="seg" id="brushSeg">
+              <button type="button" data-brush="push" class="is-active">Push</button>
+              <button type="button" data-brush="pull">Pull</button>
+              <button type="button" data-brush="vortex">Vortex</button>
+            </div>
+          </div>
+          <div class="row row-shape">
+            <span class="label">Shape</span>
+            <div class="shape-controls">
+              <input id="shapeInput" type="text" value="LOVE" maxlength="18" aria-label="Shape text" />
+              <div class="seg" id="layoutSeg" aria-label="Text layout mode">
+                <button type="button" data-layout="single" class="is-active">Big</button>
+                <button type="button" data-layout="multi">Many</button>
+              </div>
+              <div class="seg shape-actions" id="shapeSeg">
+                <button type="button" id="formBtn">Form</button>
+                <button type="button" id="meltBtn">Melt</button>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="label">Color</span>
+            <div class="look-controls">
+              <div class="seg" id="colorSeg" aria-label="Color presets">
+                <button type="button" data-color="#9bffb3" class="is-active">Mint</button>
+                <button type="button" data-color="#66d4ff">Ice</button>
+                <button type="button" data-color="#ffd36a">Gold</button>
+                <button type="button" data-color="#ff8ea8">Rose</button>
+              </div>
+              <label class="picker-wrap" for="colorInput">
+                <span class="picker-label">Picker</span>
+                <input id="colorInput" type="color" value="#9bffb3" aria-label="Particle color" />
+              </label>
+              <output id="colorHex" for="colorInput">#9BFFB3</output>
+            </div>
+          </div>
+          <div class="row help">
+            <span>Move: paint force</span>
+            <span>Hold click: attractor</span>
+            <span>Tap/click: toggle word</span>
+            <span>Touch + hold: form text</span>
+            <span>2 fingers: black hole</span>
+            <span>Enter: form text</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
