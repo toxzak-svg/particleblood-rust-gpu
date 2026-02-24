@@ -38,10 +38,27 @@
               <button type="button" data-brush="vortex">Vortex</button>
             </div>
           </div>
+          <div class="row">
+            <span class="label">Power</span>
+            <div class="seg" id="qualitySeg" aria-label="Particle capacity preset">
+              <button type="button" data-quality="auto" class="is-active">Auto</button>
+              <button type="button" data-quality="ultra">Ultra</button>
+              <button type="button" data-quality="insane">Insane</button>
+            </div>
+            <output id="particleCountOut" class="stat-pill" aria-live="polite">0 particles</output>
+          </div>
+          <div class="row">
+            <span class="label">FX</span>
+            <div class="seg" id="fxSeg" aria-label="Visual effects preset">
+              <button type="button" data-fx="neon" class="is-active">Neon</button>
+              <button type="button" data-fx="prism">Prism</button>
+              <button type="button" data-fx="plasma">Plasma</button>
+            </div>
+          </div>
           <div class="row row-shape">
             <span class="label">Shape</span>
             <div class="shape-controls">
-              <input id="shapeInput" type="text" value="LOVE" maxlength="18" aria-label="Shape text" />
+              <input id="shapeInput" type="text" value="INFINITY" maxlength="18" aria-label="Shape text" />
               <div class="seg" id="layoutSeg" aria-label="Text layout mode">
                 <button type="button" data-layout="single" class="is-active">Big</button>
                 <button type="button" data-layout="multi">Many</button>
@@ -75,6 +92,7 @@
             <span>Touch + hold: form text</span>
             <span>2 fingers: black hole</span>
             <span>Enter: form text</span>
+            <span>Z/X/C power • 1/2/3 FX</span>
           </div>
         </div>
       </div>

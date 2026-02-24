@@ -14,7 +14,77 @@ if (!gl) {
   throw new Error("WebGL2 unavailable");
 }
 
-gl.getExtension("EXT_color_buffer_float");
+const colorBufferFloatExt = gl.getExtension("EXT_color_buffer_float");
+const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 2048;
+
+const QUALITY_PRESETS = {
+  auto: {
+    maxDesktopTex: 448,
+    maxMobileTex: 320,
+    trailScale: 0.58,
+    pointScaleMul: 1.0,
+  },
+  ultra: {
+    maxDesktopTex: 576,
+    maxMobileTex: 384,
+    trailScale: 0.7,
+    pointScaleMul: 0.94,
+  },
+  insane: {
+    maxDesktopTex: 704,
+    maxMobileTex: 448,
+    trailScale: 0.8,
+    pointScaleMul: 0.88,
+  },
+};
+
+const FX_PRESETS = {
+  neon: {
+    mode: 0,
+    trailWarp: 0.04,
+    trailGhost: 0.12,
+    trailSparkle: 0.35,
+    trailDecayLift: 0.0,
+    bloom: 1.0,
+    chroma: 0.0,
+    grain: 0.08,
+    bgPulse: 0.18,
+    particleSpark: 0.38,
+    ringGain: 0.35,
+    flare: 0.28,
+    alphaGain: 0.92,
+  },
+  prism: {
+    mode: 1,
+    trailWarp: 0.12,
+    trailGhost: 0.35,
+    trailSparkle: 0.8,
+    trailDecayLift: -0.004,
+    bloom: 1.22,
+    chroma: 0.55,
+    grain: 0.22,
+    bgPulse: 0.32,
+    particleSpark: 0.82,
+    ringGain: 0.72,
+    flare: 0.58,
+    alphaGain: 1.05,
+  },
+  plasma: {
+    mode: 2,
+    trailWarp: 0.18,
+    trailGhost: 0.5,
+    trailSparkle: 1.0,
+    trailDecayLift: -0.008,
+    bloom: 1.34,
+    chroma: 0.24,
+    grain: 0.3,
+    bgPulse: 0.52,
+    particleSpark: 1.0,
+    ringGain: 0.88,
+    flare: 0.82,
+    alphaGain: 1.12,
+  },
+};
 
 const state = {
   time: 0,
@@ -55,7 +125,7 @@ const state = {
     by: 0.0,
   },
   shape: {
-    text: "LOVE",
+    text: "INFINITY",
     layout: "single",
     mix: 0,
     targetMix: 0,
@@ -67,6 +137,26 @@ const state = {
   color: {
     hex: "#9bffb3",
     rgb: [0.6078, 1.0, 0.702],
+  },
+  perf: {
+    quality: "auto",
+  },
+  fx: {
+    mode: "neon",
+  },
+  stats: {
+    fps: 60,
+    sampleAccum: 0,
+    frameAccum: 0,
+    samples: 0,
+    lastUiUpdate: 0,
+  },
+  rustUi: {
+    enabled: false,
+    ready: false,
+    loading: false,
+    error: "",
+    initPromise: null,
   },
 };
 
@@ -81,12 +171,46 @@ function hexToRgb01(hex) {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
+function isLikelyMobile() {
+  return window.matchMedia?.("(max-width: 820px), (pointer: coarse)")?.matches ?? window.innerWidth <= 820;
+}
+
+function getQualityPreset() {
+  return QUALITY_PRESETS[state.perf.quality] || QUALITY_PRESETS.auto;
+}
+
+function getFxPreset() {
+  return FX_PRESETS[state.fx.mode] || FX_PRESETS.neon;
+}
+
+function formatParticleCount(count) {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(2)}M`;
+  if (count >= 1000) return `${(count / 1000).toFixed(count >= 100_000 ? 0 : 1)}k`;
+  return `${count}`;
+}
+
 function chooseParticleTexSize() {
   const area = window.innerWidth * window.innerHeight * Math.min(window.devicePixelRatio || 1, 2);
-  if (area < 340_000) return 128;
-  if (area < 700_000) return 192;
-  if (area < 1_400_000) return 256;
-  return 320;
+  const q = getQualityPreset();
+  const cap = Math.max(128, Math.min(maxTextureSize, isLikelyMobile() ? q.maxMobileTex : q.maxDesktopTex));
+  const ladder = [128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704];
+  let target = 256;
+  if (area < 320_000) target = 160;
+  else if (area < 650_000) target = 224;
+  else if (area < 1_150_000) target = 320;
+  else if (area < 1_900_000) target = 384;
+  else if (area < 2_800_000) target = 448;
+  else if (area < 3_800_000) target = 512;
+  else if (area < 5_200_000) target = 576;
+  else target = 640;
+
+  if (state.perf.quality === "auto") target = Math.min(target, 448);
+  if (state.perf.quality === "insane" && area > 4_200_000) target = 704;
+
+  for (let i = ladder.length - 1; i >= 0; i--) {
+    if (ladder[i] <= cap && ladder[i] <= target) return ladder[i];
+  }
+  return Math.min(cap, 128);
 }
 
 function createShader(type, source) {
@@ -116,6 +240,19 @@ function createProgram(vsSource, fsSource) {
     throw new Error(info || "Program link failed");
   }
   return program;
+}
+
+const uniformCache = new WeakMap();
+function getUniform(program, name) {
+  let map = uniformCache.get(program);
+  if (!map) {
+    map = new Map();
+    uniformCache.set(program, map);
+  }
+  if (!map.has(name)) {
+    map.set(name, gl.getUniformLocation(program, name));
+  }
+  return map.get(name);
 }
 
 function createTexture(w, h, {
@@ -375,18 +512,28 @@ uniform sampler2D uTrail;
 uniform vec2 uInvResolution;
 uniform float uDecay;
 uniform float uTime;
+uniform vec4 uFx; // x warp, y ghost, z sparkle, w decay lift
 void main() {
   vec2 px = uInvResolution;
-  vec4 c = texture(uTrail, vUv) * 0.55;
-  c += texture(uTrail, vUv + vec2(px.x, 0.0)) * 0.12;
-  c += texture(uTrail, vUv - vec2(px.x, 0.0)) * 0.12;
-  c += texture(uTrail, vUv + vec2(0.0, px.y)) * 0.10;
-  c += texture(uTrail, vUv - vec2(0.0, px.y)) * 0.10;
-  c.rgb *= uDecay;
-  c.rgb += 0.002 * vec3(
-    sin(uTime * 0.7 + vUv.x * 11.0),
-    sin(uTime * 0.9 + vUv.y * 13.0 + 1.4),
-    sin(uTime * 1.1 + (vUv.x + vUv.y) * 9.0 + 2.3)
+  vec2 drift = vec2(
+    sin(uTime * 0.67 + vUv.y * 13.0),
+    cos(uTime * 0.73 + vUv.x * 11.0)
+  ) * (px * (1.0 + 8.0 * uFx.x));
+  vec2 uv = clamp(vUv + drift * uFx.x, px * 1.5, vec2(1.0) - px * 1.5);
+  vec4 c = texture(uTrail, uv) * 0.55;
+  c += texture(uTrail, uv + vec2(px.x, 0.0)) * 0.12;
+  c += texture(uTrail, uv - vec2(px.x, 0.0)) * 0.12;
+  c += texture(uTrail, uv + vec2(0.0, px.y)) * 0.10;
+  c += texture(uTrail, uv - vec2(0.0, px.y)) * 0.10;
+  if (uFx.y > 0.001) {
+    vec2 ghostOffset = vec2(px.x * (2.0 + 8.0 * uFx.y), -px.y * (1.0 + 5.0 * uFx.y));
+    c += texture(uTrail, clamp(uv + ghostOffset, px * 1.5, vec2(1.0) - px * 1.5)) * (0.04 + 0.10 * uFx.y);
+  }
+  c.rgb *= clamp(uDecay + uFx.w, 0.88, 0.995);
+  c.rgb += (0.0018 + 0.0032 * uFx.z) * vec3(
+    sin(uTime * 0.7 + uv.x * 11.0),
+    sin(uTime * 0.9 + uv.y * 13.0 + 1.4),
+    sin(uTime * 1.1 + (uv.x + uv.y) * 9.0 + 2.3)
   );
   outColor = vec4(max(c.rgb, 0.0), 1.0);
 }`;
@@ -398,6 +545,15 @@ out vec4 outColor;
 uniform sampler2D uTrail;
 uniform vec2 uResolution;
 uniform float uTime;
+uniform vec3 uTint;
+uniform vec4 uFx; // x bloom, y chroma, z grain, w bg pulse
+uniform int uFxMode;
+
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
 
 vec3 bg(vec2 uv) {
   vec2 p = uv * 2.0 - 1.0;
@@ -406,15 +562,38 @@ vec3 bg(vec2 uv) {
   vec3 c = mix(vec3(0.02, 0.03, 0.06), vec3(0.02, 0.06, 0.08), uv.y);
   c += 0.06 * exp(-r * 2.4) * vec3(0.2, 0.6, 1.0);
   c += 0.025 * exp(-length(p - vec2(0.65, -0.25)) * 3.0) * vec3(0.1, 1.0, 0.8);
+  if (uFxMode == 1) {
+    c += 0.032 * exp(-r * 1.7) * vec3(0.8, 0.35, 1.0) * (0.6 + 0.4 * sin(uTime * 0.8 + p.x * 4.0));
+    c += 0.018 * vec3(0.35, 0.9, 1.0) * sin(uTime * 0.35 + p.y * 7.0 + p.x * 3.0);
+  } else if (uFxMode == 2) {
+    float wave = 0.5 + 0.5 * sin(uTime * 0.9 + p.x * 6.5 - p.y * 4.2);
+    c += (0.025 + 0.025 * wave) * vec3(1.0, 0.35, 0.22);
+    c += 0.020 * exp(-length(p + vec2(0.48, 0.1)) * 2.2) * vec3(1.0, 0.65, 0.12);
+  }
   return c;
 }
 
 void main() {
+  vec2 px = 1.0 / max(uResolution, vec2(1.0));
   vec3 trail = texture(uTrail, vUv).rgb;
-  vec3 bloomish = trail * (0.62 + 0.18 * smoothstep(0.08, 0.8, max(max(trail.r, trail.g), trail.b)));
+  if (uFx.y > 0.001) {
+    float shift = uFx.y * (0.75 + 0.25 * sin(uTime * 0.7 + vUv.y * 20.0));
+    trail.r = texture(uTrail, clamp(vUv + vec2(px.x * (2.0 + 4.0 * shift), 0.0), px, vec2(1.0) - px)).r;
+    trail.b = texture(uTrail, clamp(vUv - vec2(px.x * (1.5 + 3.5 * shift), 0.0), px, vec2(1.0) - px)).b;
+  }
+  // Soft-knee rolloff preserves color detail in dense areas instead of clipping to white.
+  vec3 trailSoft = trail / (1.0 + trail * (0.55 + 0.45 * uFx.x));
+  vec3 bloomish = trailSoft * (0.56 + 0.14 * smoothstep(0.08, 0.8, max(max(trailSoft.r, trailSoft.g), trailSoft.b))) * uFx.x;
+  bloomish += pow(max(trailSoft - 0.08, 0.0), vec3(0.85)) * (0.10 + 0.16 * uFx.x);
   vec3 color = bg(vUv) + bloomish;
+  color = mix(color, color * (0.75 + 0.55 * uTint), 0.10 + 0.14 * uFx.w);
   float vignette = smoothstep(1.35, 0.2, length((vUv - 0.5) * vec2(uResolution.x / max(uResolution.y, 1.0), 1.0)));
   color *= 0.92 + 0.08 * vignette;
+  if (uFx.z > 0.001) {
+    float grain = hash12(vUv * uResolution + fract(uTime * 60.0));
+    color += (grain - 0.5) * (0.006 + 0.02 * uFx.z);
+  }
+  color = color / (1.0 + color * 0.75);
   color = pow(color, vec3(0.95));
   outColor = vec4(color, 1.0);
 }`;
@@ -445,12 +624,17 @@ out vec4 outColor;
 uniform float uTime;
 uniform int uMood;
 uniform vec3 uTint;
+uniform vec4 uFx; // x spark, y ring, z flare, w alpha
+uniform int uFxMode;
 void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(p, p);
   if (r2 > 1.0) discard;
   float core = exp(-r2 * 5.0);
   float ring = exp(-abs(sqrt(r2) - 0.45) * 10.0);
+  float flare = pow(max(0.0, 1.0 - abs(p.x * p.y) * 18.0), 3.0) * uFx.z;
+  flare += pow(max(0.0, 1.0 - abs(p.x) * 2.8), 8.0) * uFx.z * 0.18;
+  flare += pow(max(0.0, 1.0 - abs(p.y) * 2.8), 8.0) * uFx.z * 0.18;
   float speed = vData.w;
   float hueShift = fract(vData.z + speed * 0.22 + uTime * 0.02);
   vec3 baseA = vec3(0.08, 0.7, 1.0);
@@ -460,9 +644,16 @@ void main() {
   col = mix(col, baseC, smoothstep(0.7, 1.0, hueShift));
   if (uMood == 1) col = mix(col, vec3(1.0, 0.85, 0.35), 0.3);
   if (uMood == 2) col = mix(col, vec3(0.7, 0.75, 1.0), 0.25);
+  if (uFxMode == 1) col = mix(col, vec3(0.8, 0.6, 1.0), 0.18 * (0.5 + 0.5 * sin(uTime + vData.z * 6.2831)));
+  if (uFxMode == 2) col = mix(col, vec3(1.0, 0.45, 0.16), 0.16 + 0.14 * smoothstep(0.0, 1.2, speed));
   col = mix(col, uTint, 0.72);
-  float alpha = core * 0.52 + ring * 0.08;
-  outColor = vec4(col * alpha * (0.5 + speed * 0.62), alpha);
+  float alpha = core * (0.48 + 0.12 * uFx.w) + ring * (0.08 + 0.14 * uFx.y);
+  alpha += flare * (0.06 + 0.12 * uFx.x);
+  float outAlpha = clamp(alpha * (0.86 + 0.18 * uFx.w), 0.0, 0.88);
+  float drive = 0.44 + speed * (0.58 + 0.28 * uFx.x);
+  drive = drive / (1.0 + drive * (0.45 + 0.25 * uFx.x));
+  float glow = 0.75 + 0.65 * drive;
+  outColor = vec4(col * outAlpha * glow, outAlpha);
 }`;
 
 const copyFS = `#version 300 es
@@ -578,7 +769,7 @@ function rebuildShapeTargetTexture() {
   if (!particleResources || !shapeTargetTex || !shapeCtx) return;
   if (!state.shape.dirty) return;
 
-  const text = ((state.shape.text || "LOVE").trim() || "LOVE").toUpperCase();
+  const text = ((state.shape.text || "INFINITY").trim() || "INFINITY").toUpperCase();
   const cw = shapeCanvas.width;
   const ch = shapeCanvas.height;
   shapeCtx.clearRect(0, 0, cw, ch);
@@ -588,7 +779,7 @@ function rebuildShapeTargetTexture() {
   const fontFamily = '"Arial Black", "Segoe UI", sans-serif';
 
   if (state.shape.layout === "multi") {
-    const stampText = text.split(/\s+/).filter(Boolean).join(" ") || "LOVE";
+    const stampText = text.split(/\s+/).filter(Boolean).join(" ") || "INFINITY";
     const count = 5 + ((Math.random() * 2) | 0);
     const maxLen = Math.max(1, stampText.length);
     const base = Math.floor(Math.min(cw, ch) * (maxLen > 9 ? 0.11 : 0.14));
@@ -647,7 +838,7 @@ function rebuildShapeTargetTexture() {
       shapeCtx.restore();
     }
   } else {
-    const bigText = (text.split(/\s+/)[0] || "LOVE").slice(0, 18);
+    const bigText = (text.split(/\s+/)[0] || "INFINITY").slice(0, 18);
     const maxW = cw * 0.95;
     const maxH = ch * 0.8;
     let lo = 32;
@@ -705,7 +896,7 @@ function rebuildShapeTargetTexture() {
 }
 
 function createTrailResources(w, h) {
-  const supportsHalfFloat = !!gl.getExtension("EXT_color_buffer_float");
+  const supportsHalfFloat = !!colorBufferFloatExt;
   const internal = supportsHalfFloat ? gl.RGBA16F : gl.RGBA8;
   const type = supportsHalfFloat ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
   const texA = createTexture(w, h, {
@@ -761,20 +952,23 @@ function initParticles() {
 
   const seed = Math.random() * 1000;
   gl.viewport(0, 0, nextSize, nextSize);
+  const initProgram = programs.init;
   for (const pass of particleResources.buffers) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, pass.fbo);
-    gl.useProgram(programs.init);
-    gl.uniform2f(gl.getUniformLocation(programs.init, "uResolution"), nextSize, nextSize);
-    gl.uniform1f(gl.getUniformLocation(programs.init, "uSeed"), seed);
-    runFullscreen(programs.init);
+    gl.useProgram(initProgram);
+    gl.uniform2f(getUniform(initProgram, "uResolution"), nextSize, nextSize);
+    gl.uniform1f(getUniform(initProgram, "uSeed"), seed);
+    runFullscreen(initProgram);
   }
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   rebuildShapeTargetTexture();
+  updateParticleCountUi({ includeFps: false });
 }
 
 function initTrail() {
-  const w = Math.max(2, Math.floor(state.width * 0.5));
-  const h = Math.max(2, Math.floor(state.height * 0.5));
+  const q = getQualityPreset();
+  const w = Math.max(2, Math.floor(state.width * q.trailScale));
+  const h = Math.max(2, Math.floor(state.height * q.trailScale));
   if (trailResources && trailResources.width === w && trailResources.height === h) return;
   destroyTrailResources(trailResources);
   trailResources = createTrailResources(w, h);
@@ -1091,6 +1285,7 @@ function updateTouchModes(now) {
 }
 
 function setActiveButton(seg, key, value) {
+  if (!seg) return;
   for (const btn of seg.querySelectorAll("button")) {
     btn.classList.toggle("is-active", btn.dataset[key] === value);
   }
@@ -1113,6 +1308,9 @@ function isTypingTarget(el) {
 
 const moodSeg = document.getElementById("moodSeg");
 const brushSeg = document.getElementById("brushSeg");
+const qualitySeg = document.getElementById("qualitySeg");
+const particleCountOut = document.getElementById("particleCountOut");
+const fxSeg = document.getElementById("fxSeg");
 const shapeInput = document.getElementById("shapeInput");
 const colorInput = document.getElementById("colorInput");
 const colorSeg = document.getElementById("colorSeg");
@@ -1122,6 +1320,96 @@ const formBtn = document.getElementById("formBtn");
 const meltBtn = document.getElementById("meltBtn");
 const controlPanel = document.getElementById("controlPanel");
 const panelToggle = document.getElementById("panelToggle");
+const rustUiBtn = document.getElementById("rustUiBtn");
+const rustUiInlineStatus = document.getElementById("rustUiInlineStatus");
+const rustUiDock = document.getElementById("rustUiDock");
+const rustUiDockToggle = document.getElementById("rustUiDockToggle");
+const rustUiDockNote = document.getElementById("rustUiDockNote");
+
+function setRustUiStatus(text, status = "idle") {
+  if (!rustUiInlineStatus) return;
+  rustUiInlineStatus.textContent = text;
+  rustUiInlineStatus.dataset.state = status;
+}
+
+function setRustUiNote(text) {
+  if (!rustUiDockNote) return;
+  rustUiDockNote.textContent = text;
+}
+
+function updateParticleCountUi({ includeFps = true } = {}) {
+  if (!particleCountOut) return;
+  const base = `${formatParticleCount(state.particleCount)} pts`;
+  const fps = Math.max(0, Math.round(state.stats.fps || 0));
+  const text = includeFps ? `${base} @ ${fps}fps` : base;
+  particleCountOut.textContent = text;
+  particleCountOut.value = text;
+}
+
+function setQualityMode(mode) {
+  if (!QUALITY_PRESETS[mode]) return;
+  state.perf.quality = mode;
+  setActiveButton(qualitySeg, "quality", state.perf.quality);
+  initParticles();
+  initTrail();
+  rebuildShapeTargetTexture();
+  updateParticleCountUi({ includeFps: false });
+}
+
+function setFxMode(mode) {
+  if (!FX_PRESETS[mode]) return;
+  state.fx.mode = mode;
+  setActiveButton(fxSeg, "fx", state.fx.mode);
+}
+
+async function ensureRustUiLoaded() {
+  if (state.rustUi.ready) return true;
+  if (state.rustUi.initPromise) return state.rustUi.initPromise;
+
+  state.rustUi.loading = true;
+  setRustUiStatus("Loading...", "idle");
+  setRustUiNote("Loading Rust UI Micro Engine WebAssembly bundle...");
+
+  state.rustUi.initPromise = (async () => {
+    try {
+      const mod = await import("./rust-ui-micro-engine/web/ui_micro_app.js");
+      if (typeof mod.default === "function") {
+        await mod.default();
+      }
+      state.rustUi.ready = true;
+      state.rustUi.error = "";
+      setRustUiStatus("Live", "ready");
+      setRustUiNote("Rust UI Micro Engine is running in the dock canvas.");
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      state.rustUi.error = msg;
+      state.rustUi.ready = false;
+      setRustUiStatus("Build wasm", "error");
+      setRustUiNote("Rust UI wasm bundle not found. Run scripts/build-rust-ui-web.sh, then reload.");
+      console.warn("Rust UI Micro Engine load failed:", err);
+      state.rustUi.initPromise = null;
+      return false;
+    } finally {
+      state.rustUi.loading = false;
+    }
+  })();
+
+  return state.rustUi.initPromise;
+}
+
+function setRustUiVisible(visible) {
+  if (!rustUiBtn && !rustUiDock) return;
+  state.rustUi.enabled = !!visible;
+  if (rustUiDock) rustUiDock.hidden = !state.rustUi.enabled;
+  if (rustUiBtn) {
+    rustUiBtn.textContent = state.rustUi.enabled ? "Hide Micro UI" : "Open Micro UI";
+    rustUiBtn.setAttribute("aria-pressed", state.rustUi.enabled ? "true" : "false");
+  }
+  if (state.rustUi.enabled) {
+    void ensureRustUiLoaded();
+  }
+}
 
 function setPanelCollapsed(collapsed) {
   if (!controlPanel || !panelToggle) return;
@@ -1150,6 +1438,34 @@ brushSeg.addEventListener("click", (e) => {
   setActiveButton(brushSeg, "brush", state.brush);
 });
 
+if (qualitySeg) {
+  qualitySeg.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-quality]");
+    if (!btn) return;
+    setQualityMode(btn.dataset.quality);
+  });
+}
+
+if (fxSeg) {
+  fxSeg.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-fx]");
+    if (!btn) return;
+    setFxMode(btn.dataset.fx);
+  });
+}
+
+if (rustUiBtn) {
+  rustUiBtn.addEventListener("click", () => {
+    setRustUiVisible(!state.rustUi.enabled);
+  });
+}
+
+if (rustUiDockToggle) {
+  rustUiDockToggle.addEventListener("click", () => {
+    setRustUiVisible(false);
+  });
+}
+
 layoutSeg.addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-layout]");
   if (!btn) return;
@@ -1159,7 +1475,7 @@ layoutSeg.addEventListener("click", (e) => {
 });
 
 function triggerShapeForm(holdDuration = state.shape.duration) {
-  state.shape.text = ((shapeInput.value || "LOVE").trim() || "LOVE").slice(0, 18);
+  state.shape.text = ((shapeInput.value || "INFINITY").trim() || "INFINITY").slice(0, 18);
   shapeInput.value = state.shape.text;
   state.shape.dirty = true;
   rebuildShapeTargetTexture();
@@ -1207,7 +1523,7 @@ function syncShapeTextFromInput({
   fallbackOnEmpty = true,
 } = {}) {
   const normalized = ((shapeInput.value || "").trim()).slice(0, 18);
-  state.shape.text = normalized || (fallbackOnEmpty ? "LOVE" : "");
+  state.shape.text = normalized || (fallbackOnEmpty ? "INFINITY" : "");
   if (fallbackOnEmpty || normalized) {
     shapeInput.value = state.shape.text;
   }
@@ -1260,6 +1576,12 @@ window.addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "q") state.brush = "push";
   if (e.key.toLowerCase() === "w") state.brush = "pull";
   if (e.key.toLowerCase() === "e") state.brush = "vortex";
+  if (e.key === "1") setFxMode("neon");
+  if (e.key === "2") setFxMode("prism");
+  if (e.key === "3") setFxMode("plasma");
+  if (e.key.toLowerCase() === "z") setQualityMode("auto");
+  if (e.key.toLowerCase() === "x") setQualityMode("ultra");
+  if (e.key.toLowerCase() === "c") setQualityMode("insane");
   if (e.key.toLowerCase() === "m") triggerShapeMelt();
   if (e.key.toLowerCase() === "t") {
     state.shape.layout = state.shape.layout === "single" ? "multi" : "single";
@@ -1268,6 +1590,8 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && document.activeElement !== shapeInput) triggerShapeForm();
   setActiveButton(moodSeg, "mood", state.mood);
   setActiveButton(brushSeg, "brush", state.brush);
+  setActiveButton(qualitySeg, "quality", state.perf.quality);
+  setActiveButton(fxSeg, "fx", state.fx.mode);
   setActiveButton(layoutSeg, "layout", state.shape.layout);
   updateShapeActionButtons();
 });
@@ -1276,75 +1600,77 @@ function simStep(dt) {
   const res = particleResources;
   const read = res.buffers[res.readIndex];
   const write = res.buffers[1 - res.readIndex];
+  const simProgram = programs.sim;
+  const fx = getFxPreset();
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, write.fbo);
   gl.viewport(0, 0, res.size, res.size);
   gl.disable(gl.BLEND);
 
-  gl.useProgram(programs.sim);
+  gl.useProgram(simProgram);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, read.pos);
-  gl.uniform1i(gl.getUniformLocation(programs.sim, "uPosTex"), 0);
+  gl.uniform1i(getUniform(simProgram, "uPosTex"), 0);
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, read.vel);
-  gl.uniform1i(gl.getUniformLocation(programs.sim, "uVelTex"), 1);
+  gl.uniform1i(getUniform(simProgram, "uVelTex"), 1);
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, shapeTargetTex ? shapeTargetTex.tex : null);
-  gl.uniform1i(gl.getUniformLocation(programs.sim, "uShapeTargetTex"), 2);
+  gl.uniform1i(getUniform(simProgram, "uShapeTargetTex"), 2);
 
-  gl.uniform2f(gl.getUniformLocation(programs.sim, "uStateResolution"), res.size, res.size);
-  gl.uniform1f(gl.getUniformLocation(programs.sim, "uTime"), state.time);
-  gl.uniform1f(gl.getUniformLocation(programs.sim, "uDt"), dt);
-  gl.uniform1i(gl.getUniformLocation(programs.sim, "uMood"), moodIndex());
-  gl.uniform1i(gl.getUniformLocation(programs.sim, "uBrushMode"), brushIndex());
+  gl.uniform2f(getUniform(simProgram, "uStateResolution"), res.size, res.size);
+  gl.uniform1f(getUniform(simProgram, "uTime"), state.time);
+  gl.uniform1f(getUniform(simProgram, "uDt"), dt);
+  gl.uniform1i(getUniform(simProgram, "uMood"), moodIndex());
+  gl.uniform1i(getUniform(simProgram, "uBrushMode"), brushIndex());
 
   const pointerActive = state.pointer.active && state.time - state.pointer.lastSeen / 1000 < 0.15 && !state.wormhole.active;
   gl.uniform4f(
-    gl.getUniformLocation(programs.sim, "uPointer"),
+    getUniform(simProgram, "uPointer"),
     state.pointer.nx,
     state.pointer.ny,
     state.pointer.radius,
     pointerActive ? 1 : 0,
   );
   gl.uniform4f(
-    gl.getUniformLocation(programs.sim, "uPointerV"),
+    getUniform(simProgram, "uPointerV"),
     state.pointer.vx * 0.02,
     state.pointer.vy * 0.02,
     state.pointer.strength,
     state.pointer.down ? 1 : 0,
   );
   gl.uniform4f(
-    gl.getUniformLocation(programs.sim, "uAttractor"),
+    getUniform(simProgram, "uAttractor"),
     state.attractor.x,
     state.attractor.y,
     state.attractor.mass,
     state.attractor.enabled ? 1 : 0,
   );
-  gl.uniform2f(gl.getUniformLocation(programs.sim, "uAttractorSpin"), state.attractor.spin, 0);
+  gl.uniform2f(getUniform(simProgram, "uAttractorSpin"), state.attractor.spin * (1 + fx.trailWarp * 0.2), 0);
   gl.uniform4f(
-    gl.getUniformLocation(programs.sim, "uWormA"),
+    getUniform(simProgram, "uWormA"),
     state.wormhole.ax,
     state.wormhole.ay,
     state.wormhole.active ? 1 : 0,
     0.18,
   );
   gl.uniform4f(
-    gl.getUniformLocation(programs.sim, "uWormB"),
+    getUniform(simProgram, "uWormB"),
     state.wormhole.bx,
     state.wormhole.by,
     state.wormhole.active ? 1 : 0,
     0.18,
   );
-  gl.uniform2f(gl.getUniformLocation(programs.sim, "uViewport"), state.width, state.height);
+  gl.uniform2f(getUniform(simProgram, "uViewport"), state.width, state.height);
   gl.uniform4f(
-    gl.getUniformLocation(programs.sim, "uShape"),
+    getUniform(simProgram, "uShape"),
     state.shape.mix,
-    2.8,
-    0.42,
+    2.8 + fx.particleSpark * 0.35,
+    0.42 + fx.flare * 0.2,
     state.shape.mix > 0.001 ? 1 : 0,
   );
 
-  runFullscreen(programs.sim);
+  runFullscreen(simProgram);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   res.readIndex = 1 - res.readIndex;
 }
@@ -1355,40 +1681,60 @@ function trailStep() {
   const write = res.buffers[1 - res.readIndex];
   const pRes = particleResources;
   const particles = pRes.buffers[pRes.readIndex];
+  const fx = getFxPreset();
+  const q = getQualityPreset();
+  const trailProgram = programs.trailDecay;
+  const particleProgram = programs.particle;
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, write.fbo);
   gl.viewport(0, 0, res.width, res.height);
   gl.disable(gl.BLEND);
-  gl.useProgram(programs.trailDecay);
+  gl.useProgram(trailProgram);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, read.tex);
-  gl.uniform1i(gl.getUniformLocation(programs.trailDecay, "uTrail"), 0);
-  gl.uniform2f(gl.getUniformLocation(programs.trailDecay, "uInvResolution"), 1 / res.width, 1 / res.height);
+  gl.uniform1i(getUniform(trailProgram, "uTrail"), 0);
+  gl.uniform2f(getUniform(trailProgram, "uInvResolution"), 1 / res.width, 1 / res.height);
   const decay = state.mood === "magnetic" ? 0.945 : 0.952;
-  gl.uniform1f(gl.getUniformLocation(programs.trailDecay, "uDecay"), decay);
-  gl.uniform1f(gl.getUniformLocation(programs.trailDecay, "uTime"), state.time);
-  runFullscreen(programs.trailDecay);
+  gl.uniform1f(getUniform(trailProgram, "uDecay"), decay);
+  gl.uniform1f(getUniform(trailProgram, "uTime"), state.time);
+  gl.uniform4f(
+    getUniform(trailProgram, "uFx"),
+    fx.trailWarp,
+    fx.trailGhost,
+    fx.trailSparkle,
+    fx.trailDecayLift,
+  );
+  runFullscreen(trailProgram);
 
   gl.enable(gl.BLEND);
-  gl.blendFunc(gl.ONE, gl.ONE);
-  gl.useProgram(programs.particle);
+  // Alpha-weighted additive keeps local glow while avoiding runaway white overdraw.
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.useProgram(particleProgram);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, particles.pos);
-  gl.uniform1i(gl.getUniformLocation(programs.particle, "uPosTex"), 0);
+  gl.uniform1i(getUniform(particleProgram, "uPosTex"), 0);
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, particles.vel);
-  gl.uniform1i(gl.getUniformLocation(programs.particle, "uVelTex"), 1);
-  gl.uniform2f(gl.getUniformLocation(programs.particle, "uResolution"), res.width, res.height);
-  const pointScale = Math.max(1.3, Math.min(3.0, state.dpr * 1.9));
-  gl.uniform1f(gl.getUniformLocation(programs.particle, "uPointScale"), pointScale);
-  gl.uniform1f(gl.getUniformLocation(programs.particle, "uTime"), state.time);
-  gl.uniform1i(gl.getUniformLocation(programs.particle, "uMood"), moodIndex());
+  gl.uniform1i(getUniform(particleProgram, "uVelTex"), 1);
+  gl.uniform2f(getUniform(particleProgram, "uResolution"), res.width, res.height);
+  const pointScale = Math.max(1.15, Math.min(3.6, state.dpr * 1.9 * q.pointScaleMul));
+  gl.uniform1f(getUniform(particleProgram, "uPointScale"), pointScale);
+  gl.uniform1f(getUniform(particleProgram, "uTime"), state.time);
+  gl.uniform1i(getUniform(particleProgram, "uMood"), moodIndex());
   gl.uniform3f(
-    gl.getUniformLocation(programs.particle, "uTint"),
+    getUniform(particleProgram, "uTint"),
     state.color.rgb[0],
     state.color.rgb[1],
     state.color.rgb[2],
   );
+  gl.uniform4f(
+    getUniform(particleProgram, "uFx"),
+    fx.particleSpark,
+    fx.ringGain,
+    fx.flare,
+    fx.alphaGain,
+  );
+  gl.uniform1i(getUniform(particleProgram, "uFxMode"), fx.mode);
   gl.bindVertexArray(pRes.vao);
   gl.drawArrays(gl.POINTS, 0, pRes.count);
   gl.bindVertexArray(null);
@@ -1400,16 +1746,26 @@ function trailStep() {
 
 function compositeToScreen() {
   const trail = trailResources.buffers[trailResources.readIndex];
+  const fx = getFxPreset();
+  const compositeProgram = programs.composite;
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, state.width, state.height);
   gl.disable(gl.BLEND);
-  gl.useProgram(programs.composite);
+  gl.useProgram(compositeProgram);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, trail.tex);
-  gl.uniform1i(gl.getUniformLocation(programs.composite, "uTrail"), 0);
-  gl.uniform2f(gl.getUniformLocation(programs.composite, "uResolution"), state.width, state.height);
-  gl.uniform1f(gl.getUniformLocation(programs.composite, "uTime"), state.time);
-  runFullscreen(programs.composite);
+  gl.uniform1i(getUniform(compositeProgram, "uTrail"), 0);
+  gl.uniform2f(getUniform(compositeProgram, "uResolution"), state.width, state.height);
+  gl.uniform1f(getUniform(compositeProgram, "uTime"), state.time);
+  gl.uniform3f(
+    getUniform(compositeProgram, "uTint"),
+    state.color.rgb[0],
+    state.color.rgb[1],
+    state.color.rgb[2],
+  );
+  gl.uniform4f(getUniform(compositeProgram, "uFx"), fx.bloom, fx.chroma, fx.grain, fx.bgPulse);
+  gl.uniform1i(getUniform(compositeProgram, "uFxMode"), fx.mode);
+  runFullscreen(compositeProgram);
 }
 
 function frame(nowMs) {
@@ -1419,6 +1775,16 @@ function frame(nowMs) {
   state.lastTime = now;
   state.time = now;
   dt = Math.min(dt, 0.05);
+  state.stats.sampleAccum += dt;
+  state.stats.frameAccum += dt;
+  state.stats.samples += 1;
+  if (state.stats.sampleAccum >= 0.35) {
+    state.stats.fps = state.stats.samples / Math.max(state.stats.frameAccum, 1e-3);
+    state.stats.sampleAccum = 0;
+    state.stats.frameAccum = 0;
+    state.stats.samples = 0;
+    updateParticleCountUi();
+  }
 
   // Smooth pointer velocity down when idle so brush force fades naturally.
   state.pointer.vx *= 0.9;
@@ -1442,5 +1808,10 @@ resize();
 window.addEventListener("resize", resize);
 rebuildShapeTargetTexture();
 applyParticleColor(state.color.hex);
+setActiveButton(qualitySeg, "quality", state.perf.quality);
+setActiveButton(fxSeg, "fx", state.fx.mode);
+setRustUiVisible(false);
+updateParticleCountUi({ includeFps: false });
 updateShapeActionButtons();
+
 requestAnimationFrame(frame);

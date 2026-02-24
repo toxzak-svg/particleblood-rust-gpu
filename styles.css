@@ -255,6 +255,19 @@ button.is-active {
   margin-left: auto;
 }
 
+.stat-pill {
+  margin-left: auto;
+  min-width: 106px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(233, 242, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
 #formBtn.is-active {
   border-color: rgba(155, 255, 179, 0.55);
   background: rgba(155, 255, 179, 0.14);
@@ -308,6 +321,10 @@ button.is-active {
   }
 
   .shape-actions {
+    margin-left: 0;
+  }
+
+  .stat-pill {
     margin-left: 0;
   }
 }
