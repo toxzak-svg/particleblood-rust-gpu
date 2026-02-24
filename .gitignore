@@ -28,6 +28,7 @@ node_modules/
 dist/
 build/
 coverage/
+target/
 
 # Local tooling cache
 .toolcache/

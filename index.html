@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Particle Love</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link data-trunk rel="css" href="./styles.css" />
+    <link data-trunk rel="rust" href="./Cargo.toml" />
   </head>
   <body>
     <canvas id="app" aria-label="Interactive particle field"></canvas>
@@ -89,14 +90,15 @@
             <span>Move: paint force</span>
             <span>Hold click: attractor</span>
             <span>Tap/click: toggle word</span>
-            <span>Touch + hold: form text</span>
-            <span>2 fingers: black hole</span>
+            <span>Wheel: attractor mass</span>
             <span>Enter: form text</span>
-            <span>Z/X/C power • 1/2/3 FX</span>
+            <span>Q/W/E brush</span>
+            <span>Z/X/C power</span>
+            <span>1/2/3 FX</span>
+            <span>M: melt • T: layout</span>
           </div>
         </div>
       </div>
     </div>
-    <script type="module" src="./main.js"></script>
   </body>
 </html>
