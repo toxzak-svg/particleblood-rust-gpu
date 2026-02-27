@@ -116,7 +116,7 @@ const state = {
     touchPinned: false,
     x: 0,
     y: 0,
-    mass: 0.65,
+    mass: 1.8,
     spin: 0.45,
   },
   wormhole: {
@@ -127,10 +127,10 @@ const state = {
     by: 0.0,
   },
   shape: {
-    text: "ZACH",
+    text: "RUSTY PARTS",
     layout: "single",
-    mix: 0,
-    targetMix: 0,
+    mix: 1,
+    targetMix: 1,
     releaseAt: 0,
     duration: 2.3,
     tapHoldDuration: 0.9,
@@ -774,7 +774,7 @@ function rebuildShapeTargetTexture() {
   if (!particleResources || !shapeTargetTex || !shapeCtx) return;
   if (!state.shape.dirty) return;
 
-  const text = ((state.shape.text || "ZACH").trim() || "ZACH").toUpperCase();
+  const text = ((state.shape.text || "RUSTY PARTS").trim() || "RUSTY PARTS").toUpperCase();
   const cw = shapeCanvas.width;
   const ch = shapeCanvas.height;
   shapeCtx.clearRect(0, 0, cw, ch);
@@ -784,7 +784,7 @@ function rebuildShapeTargetTexture() {
   const fontFamily = '"Arial Black", "Segoe UI", sans-serif';
 
   if (state.shape.layout === "multi") {
-    const stampText = text.split(/\s+/).filter(Boolean).join(" ") || "ZACH";
+    const stampText = text.split(/\s+/).filter(Boolean).join(" ") || "RUSTY PARTS";
     const count = 5 + ((Math.random() * 2) | 0);
     const maxLen = Math.max(1, stampText.length);
     const base = Math.floor(Math.min(cw, ch) * (maxLen > 9 ? 0.11 : 0.14));
@@ -843,7 +843,7 @@ function rebuildShapeTargetTexture() {
       shapeCtx.restore();
     }
   } else {
-    const bigText = (text.split(/\s+/)[0] || "ZACH").slice(0, 18);
+    const bigText = (text.split(/\s+/).filter(Boolean).join(" ") || "RUSTY PARTS").slice(0, 18);
     const maxW = cw * 0.95;
     const maxH = ch * 0.8;
     let lo = 32;
@@ -1472,7 +1472,7 @@ layoutSeg.addEventListener("click", (e) => {
 });
 
 function triggerShapeForm(holdDuration = state.shape.duration) {
-  state.shape.text = ((shapeInput.value || "ZACH").trim() || "ZACH").slice(0, 18);
+  state.shape.text = ((shapeInput.value || "RUSTY PARTS").trim() || "RUSTY PARTS").slice(0, 18);
   shapeInput.value = state.shape.text;
   state.shape.dirty = true;
   rebuildShapeTargetTexture();
@@ -1518,7 +1518,7 @@ function syncShapeTextFromInput({
   fallbackOnEmpty = true,
 } = {}) {
   const normalized = ((shapeInput.value || "").trim()).slice(0, 18);
-  state.shape.text = normalized || (fallbackOnEmpty ? "ZACH" : "");
+  state.shape.text = normalized || (fallbackOnEmpty ? "RUSTY PARTS" : "");
   if (fallbackOnEmpty || normalized) {
     shapeInput.value = state.shape.text;
   }

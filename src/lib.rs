@@ -19,7 +19,7 @@ thread_local! {
 const TAP_TRIGGER_MAX_MS: f64 = 260.0;
 const TAP_TRIGGER_MAX_MOVE_PX: f32 = 16.0;
 const SHAPE_FORM_DURATION_S: f64 = 2.3;
-const DEFAULT_SHAPE_TEXT: &str = "ZACH";
+const DEFAULT_SHAPE_TEXT: &str = "RUSTY PARTS";
 const PARTICLE_RESOLUTION_SCALE: f64 = 1.30;
 const PARTICLE_TEX_LADDER: &[i32] = &[
     128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 896, 1024, 1280, 1536, 1792,
@@ -590,14 +590,14 @@ impl App {
                     enabled: false,
                     x: 0.0,
                     y: 0.0,
-                    mass: 0.65,
+                    mass: 1.8,
                     spin: 0.45,
                 },
                 shape: ShapeState {
                     text: DEFAULT_SHAPE_TEXT.to_string(),
                     layout: ShapeLayout::Single,
-                    mix: 0.0,
-                    target_mix: 0.0,
+                    mix: 1.0,
+                    target_mix: 1.0,
                     release_at: 0.0,
                     duration: SHAPE_FORM_DURATION_S,
                 },
@@ -1970,11 +1970,7 @@ fn build_shape_targets(text: &str, layout: ShapeLayout, count: usize) -> Vec<f32
 
     match layout {
         ShapeLayout::Single => {
-            let word = cleaned
-                .split_whitespace()
-                .next()
-                .unwrap_or(DEFAULT_SHAPE_TEXT);
-            push_text_stamp(&mut samples, word, 0.0, 0.02, 1.38, 0.88, 8);
+            push_text_stamp(&mut samples, &cleaned, 0.0, 0.02, 1.38, 0.88, 8);
         }
         ShapeLayout::Multi => {
             let stamp = cleaned;

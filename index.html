@@ -10,7 +10,7 @@
   <body>
     <canvas id="app" aria-label="Interactive particle field"></canvas>
     <div class="hud">
-      <div class="panel" id="controlPanel">
+      <div class="panel is-collapsed" id="controlPanel">
         <div class="panel-head">
           <div class="panel-title">Controls</div>
           <button
@@ -18,9 +18,9 @@
             id="panelToggle"
             class="panel-toggle"
             aria-controls="panelBody"
-            aria-expanded="true"
+            aria-expanded="false"
           >
-            Collapse
+            Expand
           </button>
         </div>
         <div class="panel-body" id="panelBody">
@@ -52,7 +52,7 @@
           <div class="row row-shape">
             <span class="label">Shape</span>
             <div class="shape-controls">
-              <input id="shapeInput" type="text" value="ZACH" maxlength="18" aria-label="Shape text" />
+              <input id="shapeInput" type="text" value="RUSTY PARTS" maxlength="18" aria-label="Shape text" />
               <div class="seg" id="layoutSeg" aria-label="Text layout mode">
                 <button type="button" data-layout="single" class="is-active">Big</button>
                 <button type="button" data-layout="multi">Many</button>
