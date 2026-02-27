@@ -784,45 +784,48 @@ function rebuildShapeTargetTexture() {
   const fontFamily = '"Arial Black", "Segoe UI", sans-serif';
 
   if (state.shape.layout === "multi") {
-    const stampText = text.split(/\s+/).filter(Boolean).join(" ") || "RUSTY PARTS";
-    const count = 5 + ((Math.random() * 2) | 0);
-    const maxLen = Math.max(1, stampText.length);
+    const words = text.split(/\s+/).filter(Boolean);
+    if (!words.length) words.push("RUSTY", "PARTS");
+    const count = clamp(words.length * 2 + 1, 6, 12);
+    const maxLen = Math.max(...words.map((w) => w.length), 1);
     const base = Math.floor(Math.min(cw, ch) * (maxLen > 9 ? 0.11 : 0.14));
     const placements = [];
 
     for (let i = 0; i < count; i++) {
-      for (let attempt = 0; attempt < 10; attempt++) {
-        const fontSize = clamp(Math.round(base * (0.82 + Math.random() * 0.36)), 30, 104);
+      const word = words[(i + ((Math.random() * words.length) | 0)) % words.length];
+      for (let attempt = 0; attempt < 16; attempt++) {
+        const fontSize = clamp(Math.round(base * (0.62 + Math.random() * 0.95)), 24, 128);
         shapeCtx.font = `800 ${fontSize}px ${fontFamily}`;
-        const m = shapeCtx.measureText(stampText);
+        const m = shapeCtx.measureText(word);
         const textW = Math.max(40, m.width);
         const textH = Math.max(
           fontSize,
           (m.actualBoundingBoxAscent || fontSize * 0.8) + (m.actualBoundingBoxDescent || fontSize * 0.2),
         );
-        const padX = Math.min(cw * 0.45, textW * 0.6 + 18);
-        const padY = Math.min(ch * 0.4, textH * 0.7 + 14);
+        const padX = Math.min(cw * 0.45, textW * 0.62 + 20);
+        const padY = Math.min(ch * 0.4, textH * 0.72 + 16);
         const x = clamp(padX + Math.random() * Math.max(1, cw - padX * 2), 0, cw);
         const y = clamp(padY + Math.random() * Math.max(1, ch - padY * 2), 0, ch);
-        const radius = Math.max(textW * 0.38, textH * 0.7);
+        const radius = Math.max(textW * 0.5, textH * 0.95);
 
         let overlaps = false;
         for (const p of placements) {
           const dx = x - p.x;
           const dy = y - p.y;
-          if (dx * dx + dy * dy < (radius + p.radius) * (radius + p.radius) * 0.65) {
+          if (dx * dx + dy * dy < (radius + p.radius) * (radius + p.radius) * 1.05) {
             overlaps = true;
             break;
           }
         }
-        if (overlaps && attempt < 9) continue;
+        if (overlaps && attempt < 15) continue;
 
         placements.push({
           x,
           y,
+          word,
           radius,
           fontSize,
-          angle: (Math.random() - 0.5) * 0.32,
+          angle: (Math.random() - 0.5) * 1.2,
         });
         break;
       }
@@ -838,8 +841,8 @@ function rebuildShapeTargetTexture() {
       shapeCtx.rotate(p.angle);
       shapeCtx.font = `800 ${p.fontSize}px ${fontFamily}`;
       shapeCtx.lineWidth = Math.max(2, p.fontSize * 0.07);
-      shapeCtx.strokeText(stampText, 0, 0);
-      shapeCtx.fillText(stampText, 0, 0);
+      shapeCtx.strokeText(p.word, 0, 0);
+      shapeCtx.fillText(p.word, 0, 0);
       shapeCtx.restore();
     }
   } else {
