@@ -16,6 +16,8 @@ if (!gl) {
 
 const colorBufferFloatExt = gl.getExtension("EXT_color_buffer_float");
 const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 2048;
+const PARTICLE_COUNT_MULTIPLIER = 2;
+const PARTICLE_RESOLUTION_SCALE = Math.sqrt(PARTICLE_COUNT_MULTIPLIER);
 
 const QUALITY_PRESETS = {
   auto: {
@@ -125,7 +127,7 @@ const state = {
     by: 0.0,
   },
   shape: {
-    text: "INFINITY",
+    text: "ZACH",
     layout: "single",
     mix: 0,
     targetMix: 0,
@@ -192,7 +194,8 @@ function formatParticleCount(count) {
 function chooseParticleTexSize() {
   const area = window.innerWidth * window.innerHeight * Math.min(window.devicePixelRatio || 1, 2);
   const q = getQualityPreset();
-  const cap = Math.max(128, Math.min(maxTextureSize, isLikelyMobile() ? q.maxMobileTex : q.maxDesktopTex));
+  const baseCap = Math.max(128, Math.min(maxTextureSize, isLikelyMobile() ? q.maxMobileTex : q.maxDesktopTex));
+  const cap = Math.max(128, Math.min(maxTextureSize, Math.floor(baseCap * PARTICLE_RESOLUTION_SCALE)));
   const ladder = [128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704];
   let target = 256;
   if (area < 320_000) target = 160;
@@ -204,7 +207,9 @@ function chooseParticleTexSize() {
   else if (area < 5_200_000) target = 576;
   else target = 640;
 
-  if (state.perf.quality === "auto") target = Math.min(target, 448);
+  target = Math.round(target * PARTICLE_RESOLUTION_SCALE);
+
+  if (state.perf.quality === "auto") target = Math.min(target, Math.round(448 * PARTICLE_RESOLUTION_SCALE));
   if (state.perf.quality === "insane" && area > 4_200_000) target = 704;
 
   for (let i = ladder.length - 1; i >= 0; i--) {
@@ -769,7 +774,7 @@ function rebuildShapeTargetTexture() {
   if (!particleResources || !shapeTargetTex || !shapeCtx) return;
   if (!state.shape.dirty) return;
 
-  const text = ((state.shape.text || "INFINITY").trim() || "INFINITY").toUpperCase();
+  const text = ((state.shape.text || "ZACH").trim() || "ZACH").toUpperCase();
   const cw = shapeCanvas.width;
   const ch = shapeCanvas.height;
   shapeCtx.clearRect(0, 0, cw, ch);
@@ -779,7 +784,7 @@ function rebuildShapeTargetTexture() {
   const fontFamily = '"Arial Black", "Segoe UI", sans-serif';
 
   if (state.shape.layout === "multi") {
-    const stampText = text.split(/\s+/).filter(Boolean).join(" ") || "INFINITY";
+    const stampText = text.split(/\s+/).filter(Boolean).join(" ") || "ZACH";
     const count = 5 + ((Math.random() * 2) | 0);
     const maxLen = Math.max(1, stampText.length);
     const base = Math.floor(Math.min(cw, ch) * (maxLen > 9 ? 0.11 : 0.14));
@@ -838,7 +843,7 @@ function rebuildShapeTargetTexture() {
       shapeCtx.restore();
     }
   } else {
-    const bigText = (text.split(/\s+/)[0] || "INFINITY").slice(0, 18);
+    const bigText = (text.split(/\s+/)[0] || "ZACH").slice(0, 18);
     const maxW = cw * 0.95;
     const maxH = ch * 0.8;
     let lo = 32;
@@ -1306,7 +1311,6 @@ function isTypingTarget(el) {
   );
 }
 
-const moodSeg = document.getElementById("moodSeg");
 const brushSeg = document.getElementById("brushSeg");
 const qualitySeg = document.getElementById("qualitySeg");
 const particleCountOut = document.getElementById("particleCountOut");
@@ -1424,13 +1428,6 @@ if (panelToggle && controlPanel) {
   });
 }
 
-moodSeg.addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-mood]");
-  if (!btn) return;
-  state.mood = btn.dataset.mood;
-  setActiveButton(moodSeg, "mood", state.mood);
-});
-
 brushSeg.addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-brush]");
   if (!btn) return;
@@ -1475,14 +1472,13 @@ layoutSeg.addEventListener("click", (e) => {
 });
 
 function triggerShapeForm(holdDuration = state.shape.duration) {
-  state.shape.text = ((shapeInput.value || "INFINITY").trim() || "INFINITY").slice(0, 18);
+  state.shape.text = ((shapeInput.value || "ZACH").trim() || "ZACH").slice(0, 18);
   shapeInput.value = state.shape.text;
   state.shape.dirty = true;
   rebuildShapeTargetTexture();
   state.mood = "magnetic";
   state.shape.targetMix = 1;
   state.shape.releaseAt = Number.isFinite(holdDuration) && holdDuration > 0 ? state.time + holdDuration : 0;
-  setActiveButton(moodSeg, "mood", state.mood);
   updateShapeActionButtons();
 }
 
@@ -1490,7 +1486,6 @@ function triggerShapeMelt() {
   state.mood = "fluid";
   state.shape.targetMix = 0;
   state.shape.releaseAt = 0;
-  setActiveButton(moodSeg, "mood", state.mood);
   updateShapeActionButtons();
 }
 
@@ -1523,7 +1518,7 @@ function syncShapeTextFromInput({
   fallbackOnEmpty = true,
 } = {}) {
   const normalized = ((shapeInput.value || "").trim()).slice(0, 18);
-  state.shape.text = normalized || (fallbackOnEmpty ? "INFINITY" : "");
+  state.shape.text = normalized || (fallbackOnEmpty ? "ZACH" : "");
   if (fallbackOnEmpty || normalized) {
     shapeInput.value = state.shape.text;
   }
@@ -1588,7 +1583,6 @@ window.addEventListener("keydown", (e) => {
     state.shape.dirty = true;
   }
   if (e.key === "Enter" && document.activeElement !== shapeInput) triggerShapeForm();
-  setActiveButton(moodSeg, "mood", state.mood);
   setActiveButton(brushSeg, "brush", state.brush);
   setActiveButton(qualitySeg, "quality", state.perf.quality);
   setActiveButton(fxSeg, "fx", state.fx.mode);

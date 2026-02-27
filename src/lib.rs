@@ -19,6 +19,8 @@ thread_local! {
 const TAP_TRIGGER_MAX_MS: f64 = 260.0;
 const TAP_TRIGGER_MAX_MOVE_PX: f32 = 16.0;
 const SHAPE_FORM_DURATION_S: f64 = 2.3;
+const DEFAULT_SHAPE_TEXT: &str = "ZACH";
+const PARTICLE_RESOLUTION_SCALE: f64 = 1.30;
 const PARTICLE_TEX_LADDER: &[i32] = &[
     128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 896, 1024, 1280, 1536, 1792,
     2048,
@@ -131,8 +133,9 @@ void main() {
   float r2 = dot(p, p);
   if (r2 > 1.0) discard;
 
-  float core = exp(-r2 * 5.0);
-  float ring = exp(-abs(sqrt(r2) - 0.45) * 10.0);
+  float speedSharp = 1.0 + vMeta.y * 2.8;
+  float core = exp(-r2 * (5.0 + speedSharp * 4.0));
+  float ring = exp(-abs(sqrt(r2) - 0.45) * (12.0 + speedSharp * 3.0));
   float flare = pow(max(0.0, 1.0 - abs(p.x * p.y) * 18.0), 3.0) * uFx.z;
   flare += pow(max(0.0, 1.0 - abs(p.x) * 2.8), 8.0) * uFx.z * 0.18;
   flare += pow(max(0.0, 1.0 - abs(p.y) * 2.8), 8.0) * uFx.z * 0.18;
@@ -201,15 +204,58 @@ void main() {
   float dt = min(uDt, 0.033);
   float aspect = uViewport.x / max(uViewport.y, 1.0);
   vec2 acc = vec2(0.0);
+    float shapeMix = clamp(uShape.x, 0.0, 1.0);
+    float melt = 1.0 - shapeMix;
+    float breathe = 0.5 + 0.5 * sin(t * 0.42 + seed * 4.1 + phase * 2.9);
+    vec2 liveCenter = vec2(
+        sin(t * 0.18 + seed * 6.2831) * 0.23,
+        cos(t * 0.16 + phase * 6.2831) * 0.19
+    );
+    liveCenter += vec2(sin(t * 0.33) * 0.10, cos(t * 0.29) * 0.08);
+    liveCenter *= melt;
 
-  float n1 = sin(p.y * 4.7 + t * 0.9 + seed * 6.2831);
-  float n2 = cos(p.x * 5.1 - t * 0.7 + phase * 4.9);
-  float swirl = 0.25 + uFx.x * 0.45;
+    float n1 = sin(p.y * 4.7 + t * 0.9 + seed * 6.2831);
+    float n2 = cos(p.x * 5.1 - t * 0.7 + phase * 4.9);
+    float swirl = 0.04 + uFx.x * 0.10;
   acc += vec2(
     (-n2 + 0.35 * sin(p.y * 3.2 + t * 0.4 + seed * 2.0)) * swirl,
     ( n1 + 0.35 * cos(p.x * 2.7 - t * 0.5 + phase * 2.0)) * swirl
   );
-  acc += -p * 0.05;
+    acc += vec2(-v.y, v.x) * 0.005;
+
+    vec2 toCenter = liveCenter - p;
+
+    vec2 warpCenter = liveCenter + vec2(
+        sin(t * 0.54 + seed * 6.2831) * 0.17,
+        cos(t * 0.59 + phase * 6.2831) * 0.14
+    );
+    vec2 dWarp = warpCenter - p;
+    float warpR2 = dot(dWarp, dWarp) + 0.055;
+    vec2 warpTangential = vec2(-dWarp.y, dWarp.x) / warpR2;
+    acc += warpTangential * (melt * 0.03);
+
+    vec2 twinA = liveCenter + vec2(-0.22 * aspect, 0.06);
+    vec2 twinB = liveCenter + vec2(0.22 * aspect, -0.06);
+    vec2 da = twinA - p;
+    vec2 db = twinB - p;
+    float ia = 1.0 / (dot(da, da) + 0.09);
+    float ib = 1.0 / (dot(db, db) + 0.09);
+    acc += vec2(-da.y, da.x) * ia * (melt * 0.022);
+    acc += vec2(db.y, -db.x) * ib * (melt * 0.022);
+
+    float microAx = sin(t * (0.73 + seed * 0.71) + phase * 6.2831);
+    float microAy = cos(t * (0.61 + phase * 0.83) + seed * 6.2831);
+    vec2 microWind = vec2(microAx, microAy);
+    microWind /= max(length(microWind), 1e-4);
+    acc += microWind * 0.005;
+
+    vec2 bodyAxis = vec2(sin(t * 0.31 + phase * 5.3), cos(t * 0.27 + seed * 5.9));
+    bodyAxis /= max(length(bodyAxis), 1e-4);
+    vec2 rel = p - liveCenter;
+    float relLen = max(length(rel), 1e-4);
+    vec2 relDir = rel / relLen;
+    float undulate = sin(t * 1.18 + dot(relDir, bodyAxis) * 6.5 + seed * 8.0);
+    acc += bodyAxis * undulate * melt * 0.010;
 
   if (uAttractor.w > 0.5) {
     applyMagnet(acc, p, uAttractor.xy, uAttractor.z, uAttractorSpin, 0.025);
@@ -222,14 +268,14 @@ void main() {
     float dist = sqrt(max(dist2, 1e-8));
     float fall = exp(-pow(dist / r, 2.0) * 2.5);
     vec2 dir = (dist > 1e-4) ? d / dist : vec2(1.0, 0.0);
-    float brushStrength = (0.65 + length(uPointerV.xy) * 0.22) * uPointerV.z;
+    float brushStrength = (1.3 + length(uPointerV.xy) * 3.2) * uPointerV.z;
     if (uBrushMode == 0) {
-      acc += dir * brushStrength * fall * 1.4;
+      acc += dir * brushStrength * fall * 2.8;
     } else if (uBrushMode == 1) {
-      acc -= dir * brushStrength * fall * 1.4;
+      acc -= dir * brushStrength * fall * 2.8;
     } else {
-      acc += vec2(-dir.y, dir.x) * brushStrength * fall * 1.7;
-      acc += uPointerV.xy * fall * 0.08;
+      acc += vec2(-dir.y, dir.x) * brushStrength * fall * 2.4;
+      acc += uPointerV.xy * fall * 2.2;
     }
   }
 
@@ -246,21 +292,22 @@ void main() {
   }
 
   v += acc * dt;
-  float damping = pow(0.973, dt * 60.0);
+    float damping = pow(0.993, dt * 60.0);
   v *= damping;
   float speed = length(v);
-  float maxSpeed = 1.25 + uFx.y * 0.25;
+    float maxSpeed = 3.8 + uFx.y * 0.6;
   if (speed > maxSpeed) {
     v *= maxSpeed / max(speed, 1e-6);
   }
 
   p += v * dt;
 
-  vec2 bounds = vec2(1.03 * aspect, 1.03);
-  if (p.x > bounds.x) { p.x = bounds.x; v.x *= -0.68; }
-  else if (p.x < -bounds.x) { p.x = -bounds.x; v.x *= -0.68; }
-  if (p.y > bounds.y) { p.y = bounds.y; v.y *= -0.68; }
-  else if (p.y < -bounds.y) { p.y = -bounds.y; v.y *= -0.68; }
+    float breathRadius = 0.03 * melt * (0.5 + 0.5 * sin(t * 0.52 + phase * 6.2831));
+    vec2 bounds = vec2((1.12 + breathRadius) * aspect, 1.12 + breathRadius);
+    if (p.x > bounds.x) { p.x = bounds.x; v.x *= -0.78; }
+    else if (p.x < -bounds.x) { p.x = -bounds.x; v.x *= -0.78; }
+    if (p.y > bounds.y) { p.y = bounds.y; v.y *= -0.78; }
+    else if (p.y < -bounds.y) { p.y = -bounds.y; v.y *= -0.78; }
 
   outState = vec4(p, v);
 }
@@ -547,7 +594,7 @@ impl App {
                     spin: 0.45,
                 },
                 shape: ShapeState {
-                    text: "INFINITY".to_string(),
+                    text: DEFAULT_SHAPE_TEXT.to_string(),
                     layout: ShapeLayout::Single,
                     mix: 0.0,
                     target_mix: 0.0,
@@ -640,6 +687,8 @@ impl App {
             q.max_desktop_tex
         };
         let global_cap = self.max_texture_size.max(128);
+        let scaled_quality_cap = ((quality_cap as f64) * PARTICLE_RESOLUTION_SCALE).floor() as i32;
+        let final_cap = global_cap.min(scaled_quality_cap.max(128));
 
         if let Some(forced) = self.debug_tex_override {
             return choose_particle_tex_from_ladder(forced, global_cap.min(2048));
@@ -670,14 +719,16 @@ impl App {
             896
         };
 
+        target = ((target as f64) * PARTICLE_RESOLUTION_SCALE).round() as i32;
+
         if self.state.quality == QualityMode::Auto {
-            target = target.min(512);
+            target = target.min(((512.0_f64) * PARTICLE_RESOLUTION_SCALE).round() as i32);
         }
         if self.state.quality == QualityMode::Insane && area > 10_500_000.0 {
-            target = 1024;
+            target = ((1024.0_f64) * PARTICLE_RESOLUTION_SCALE).round() as i32;
         }
 
-        choose_particle_tex_from_ladder(target, global_cap.min(quality_cap.max(128)))
+        choose_particle_tex_from_ladder(target, final_cap)
     }
 
     fn is_likely_mobile(&self) -> bool {
@@ -828,7 +879,7 @@ impl App {
         self.gl.uniform4f(
             self.uniform(&self.programs.sim, "uShape").as_ref(),
             shape_mix,
-            2.8 + fx.particle_spark * 0.35,
+            3.6 + fx.particle_spark * 0.45,
             0.42 + fx.flare * 0.2,
             if shape_mix > 0.001 { 1.0 } else { 0.0 },
         );
@@ -911,8 +962,8 @@ impl App {
             self.state.height as f32,
         );
         let point_scale =
-            (self.state.dpr as f32 * 1.9 * quality_preset(self.state.quality).point_scale_mul)
-                .clamp(1.2, 4.1);
+            (self.state.dpr as f32 * 2.28 * quality_preset(self.state.quality).point_scale_mul)
+                .clamp(1.35, 4.8);
         self.gl.uniform1f(
             self.uniform(&self.programs.particle, "uPointScale")
                 .as_ref(),
@@ -1907,7 +1958,7 @@ fn normalize_shape_text(input: &str, fallback_on_empty: bool) -> String {
     }
     let squashed = out.split_whitespace().collect::<Vec<_>>().join(" ");
     if squashed.is_empty() && fallback_on_empty {
-        "INFINITY".to_string()
+        DEFAULT_SHAPE_TEXT.to_string()
     } else {
         squashed
     }
@@ -1919,8 +1970,11 @@ fn build_shape_targets(text: &str, layout: ShapeLayout, count: usize) -> Vec<f32
 
     match layout {
         ShapeLayout::Single => {
-            let word = cleaned.split_whitespace().next().unwrap_or("INFINITY");
-            push_text_stamp(&mut samples, word, 0.0, 0.02, 1.82, 1.18, 4);
+            let word = cleaned
+                .split_whitespace()
+                .next()
+                .unwrap_or(DEFAULT_SHAPE_TEXT);
+            push_text_stamp(&mut samples, word, 0.0, 0.02, 1.38, 0.88, 8);
         }
         ShapeLayout::Multi => {
             let stamp = cleaned;
@@ -1932,7 +1986,7 @@ fn build_shape_targets(text: &str, layout: ShapeLayout, count: usize) -> Vec<f32
                 (-0.66, -0.42, 0.72, 0.34),
             ];
             for (idx, &(cx, cy, w, h)) in placements.iter().enumerate() {
-                let copies = if idx == 2 { 3 } else { 2 };
+                let copies = if idx == 2 { 6 } else { 4 };
                 push_text_stamp(&mut samples, &stamp, cx, cy, w, h, copies);
             }
         }
@@ -1947,8 +2001,8 @@ fn build_shape_targets(text: &str, layout: ShapeLayout, count: usize) -> Vec<f32
         let idx = (i * 131 + (i / 7) * 17) % samples.len();
         let (sx, sy) = samples[idx];
         let jx =
-            (hash01_u32((i as u32).wrapping_mul(1664525).wrapping_add(1013904223)) - 0.5) * 0.009;
-        let jy = (hash01_u32((i as u32).wrapping_mul(22695477).wrapping_add(1)) - 0.5) * 0.009;
+            (hash01_u32((i as u32).wrapping_mul(1664525).wrapping_add(1013904223)) - 0.5) * 0.0025;
+        let jy = (hash01_u32((i as u32).wrapping_mul(22695477).wrapping_add(1)) - 0.5) * 0.0025;
         out[i * 2] = sx + jx;
         out[i * 2 + 1] = sy + jy;
     }
@@ -1988,23 +2042,24 @@ fn push_text_stamp(
     let sy = height / span_y;
 
     let density = density.max(1);
+    let side = (density as f32).sqrt().ceil() as i32;
     for &(x, y) in &cells {
         let base_x = center_x + (x - cx) * sx;
         let base_y = center_y - (y - cy) * sy;
         for k in 0..density {
-            let fx = match k % 4 {
-                0 => -0.22,
-                1 => 0.22,
-                2 => -0.22,
-                _ => 0.22,
+            let gx = (k as i32 % side) as f32;
+            let gy = (k as i32 / side) as f32;
+            let fx = if side > 1 {
+                gx / (side - 1) as f32 - 0.5
+            } else {
+                0.0
             };
-            let fy = match k % 4 {
-                0 => -0.22,
-                1 => -0.22,
-                2 => 0.22,
-                _ => 0.22,
+            let fy = if side > 1 {
+                gy / (side - 1) as f32 - 0.5
+            } else {
+                0.0
             };
-            out.push((base_x + fx * sx * 0.35, base_y + fy * sy * 0.35));
+            out.push((base_x + fx * sx * 0.7, base_y + fy * sy * 0.7));
         }
     }
 }
