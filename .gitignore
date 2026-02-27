@@ -25,7 +25,6 @@ pnpm-debug.log*
 
 # Common dependency/build outputs (safe to ignore if introduced later)
 node_modules/
-dist/
 build/
 coverage/
 target/
