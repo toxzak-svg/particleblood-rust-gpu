@@ -16,26 +16,26 @@ if (!gl) {
 
 const colorBufferFloatExt = gl.getExtension("EXT_color_buffer_float");
 const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 2048;
-const PARTICLE_COUNT_MULTIPLIER = 2;
+const PARTICLE_COUNT_MULTIPLIER = 3;
 const PARTICLE_RESOLUTION_SCALE = Math.sqrt(PARTICLE_COUNT_MULTIPLIER);
 
 const QUALITY_PRESETS = {
   auto: {
-    maxDesktopTex: 448,
-    maxMobileTex: 320,
-    trailScale: 0.58,
+    maxDesktopTex: 576,
+    maxMobileTex: 416,
+    trailScale: 0.62,
     pointScaleMul: 1.0,
   },
   ultra: {
-    maxDesktopTex: 576,
-    maxMobileTex: 384,
-    trailScale: 0.7,
+    maxDesktopTex: 768,
+    maxMobileTex: 512,
+    trailScale: 0.74,
     pointScaleMul: 0.94,
   },
   insane: {
-    maxDesktopTex: 704,
-    maxMobileTex: 448,
-    trailScale: 0.8,
+    maxDesktopTex: 960,
+    maxMobileTex: 640,
+    trailScale: 0.84,
     pointScaleMul: 0.88,
   },
 };
@@ -95,8 +95,9 @@ const state = {
   width: 1,
   height: 1,
   mood: "fluid",
-  brush: "push",
+  brush: "vortex",
   particleTexSize: 256,
+  particleAmount: 50,
   particleCount: 256 * 256,
   pointer: {
     x: 0,
@@ -127,7 +128,7 @@ const state = {
     by: 0.0,
   },
   shape: {
-    text: "RUSTY PARTS",
+    text: "TOUCH!",
     layout: "single",
     mix: 1,
     targetMix: 1,
@@ -136,8 +137,18 @@ const state = {
     tapHoldDuration: 0.9,
     dirty: true,
   },
-  color: {
-    hex: "#9bffb3",
+  colorCycle: {
+    colors: [
+      [0.6078, 1.0, 0.702],    // Mint
+      [0.4, 0.8274, 1.0],      // Ice blue
+      [1.0, 0.8274, 0.416],    // Gold
+      [1.0, 0.557, 0.659],     // Rose
+      [0.6, 0.4, 1.0],         // Purple
+      [1.0, 0.6, 0.2],         // Orange
+    ],
+    currentIndex: 0,
+    nextIndex: 1,
+    mix: 0,
     rgb: [0.6078, 1.0, 0.702],
   },
   perf: {
@@ -196,21 +207,25 @@ function chooseParticleTexSize() {
   const q = getQualityPreset();
   const baseCap = Math.max(128, Math.min(maxTextureSize, isLikelyMobile() ? q.maxMobileTex : q.maxDesktopTex));
   const cap = Math.max(128, Math.min(maxTextureSize, Math.floor(baseCap * PARTICLE_RESOLUTION_SCALE)));
-  const ladder = [128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704];
+  const ladder = [128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960];
   let target = 256;
   if (area < 320_000) target = 160;
   else if (area < 650_000) target = 224;
-  else if (area < 1_150_000) target = 320;
-  else if (area < 1_900_000) target = 384;
-  else if (area < 2_800_000) target = 448;
-  else if (area < 3_800_000) target = 512;
-  else if (area < 5_200_000) target = 576;
-  else target = 640;
+  else if (area < 1_150_000) target = 320
+  else if (area < 1_900_000) target = 384
+  else if (area < 2_800_000) target = 448
+  else if (area < 3_800_000) target = 512
+  else if (area < 5_200_000) target = 576
+  else if (area < 6_800_000) target = 640
+  else if (area < 8_500_000) target = 704
+  else target = 768;
 
   target = Math.round(target * PARTICLE_RESOLUTION_SCALE);
 
-  if (state.perf.quality === "auto") target = Math.min(target, Math.round(448 * PARTICLE_RESOLUTION_SCALE));
-  if (state.perf.quality === "insane" && area > 4_200_000) target = 704;
+  if (state.perf.quality === "auto") target = Math.min(target, Math.round(576 * PARTICLE_RESOLUTION_SCALE));
+  if (state.perf.quality === "ultra") target = Math.min(target, Math.round(768 * PARTICLE_RESOLUTION_SCALE));
+  if (state.perf.quality === "insane" && area > 4_200_000) target = 896;
+  if (state.perf.quality === "insane" && area > 7_000_000) target = 960;
 
   for (let i = ladder.length - 1; i >= 0; i--) {
     if (ladder[i] <= cap && ladder[i] <= target) return ladder[i];
@@ -560,24 +575,6 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-vec3 bg(vec2 uv) {
-  vec2 p = uv * 2.0 - 1.0;
-  p.x *= uResolution.x / max(uResolution.y, 1.0);
-  float r = length(p);
-  vec3 c = mix(vec3(0.02, 0.03, 0.06), vec3(0.02, 0.06, 0.08), uv.y);
-  c += 0.06 * exp(-r * 2.4) * vec3(0.2, 0.6, 1.0);
-  c += 0.025 * exp(-length(p - vec2(0.65, -0.25)) * 3.0) * vec3(0.1, 1.0, 0.8);
-  if (uFxMode == 1) {
-    c += 0.032 * exp(-r * 1.7) * vec3(0.8, 0.35, 1.0) * (0.6 + 0.4 * sin(uTime * 0.8 + p.x * 4.0));
-    c += 0.018 * vec3(0.35, 0.9, 1.0) * sin(uTime * 0.35 + p.y * 7.0 + p.x * 3.0);
-  } else if (uFxMode == 2) {
-    float wave = 0.5 + 0.5 * sin(uTime * 0.9 + p.x * 6.5 - p.y * 4.2);
-    c += (0.025 + 0.025 * wave) * vec3(1.0, 0.35, 0.22);
-    c += 0.020 * exp(-length(p + vec2(0.48, 0.1)) * 2.2) * vec3(1.0, 0.65, 0.12);
-  }
-  return c;
-}
-
 void main() {
   vec2 px = 1.0 / max(uResolution, vec2(1.0));
   vec3 trail = texture(uTrail, vUv).rgb;
@@ -590,10 +587,8 @@ void main() {
   vec3 trailSoft = trail / (1.0 + trail * (0.55 + 0.45 * uFx.x));
   vec3 bloomish = trailSoft * (0.56 + 0.14 * smoothstep(0.08, 0.8, max(max(trailSoft.r, trailSoft.g), trailSoft.b))) * uFx.x;
   bloomish += pow(max(trailSoft - 0.08, 0.0), vec3(0.85)) * (0.10 + 0.16 * uFx.x);
-  vec3 color = bg(vUv) + bloomish;
+  vec3 color = bloomish;
   color = mix(color, color * (0.75 + 0.55 * uTint), 0.10 + 0.14 * uFx.w);
-  float vignette = smoothstep(1.35, 0.2, length((vUv - 0.5) * vec2(uResolution.x / max(uResolution.y, 1.0), 1.0)));
-  color *= 0.92 + 0.08 * vignette;
   if (uFx.z > 0.001) {
     float grain = hash12(vUv * uResolution + fract(uTime * 60.0));
     color += (grain - 0.5) * (0.006 + 0.02 * uFx.z);
@@ -629,6 +624,8 @@ out vec4 outColor;
 uniform float uTime;
 uniform int uMood;
 uniform vec3 uTint;
+uniform vec3 uTint2;
+uniform float uTintMix;
 uniform vec4 uFx; // x spark, y ring, z flare, w alpha
 uniform int uFxMode;
 void main() {
@@ -651,7 +648,9 @@ void main() {
   if (uMood == 2) col = mix(col, vec3(0.7, 0.75, 1.0), 0.25);
   if (uFxMode == 1) col = mix(col, vec3(0.8, 0.6, 1.0), 0.18 * (0.5 + 0.5 * sin(uTime + vData.z * 6.2831)));
   if (uFxMode == 2) col = mix(col, vec3(1.0, 0.45, 0.16), 0.16 + 0.14 * smoothstep(0.0, 1.2, speed));
-  col = mix(col, uTint, 0.72);
+  // Blend between two tint colors based on time
+  vec3 tint = mix(uTint, uTint2, uTintMix);
+  col = mix(col, tint, 0.72);
   float alpha = core * (0.48 + 0.12 * uFx.w) + ring * (0.08 + 0.14 * uFx.y);
   alpha += flare * (0.06 + 0.12 * uFx.x);
   float outAlpha = clamp(alpha * (0.86 + 0.18 * uFx.w), 0.0, 0.88);
@@ -1315,7 +1314,7 @@ function isTypingTarget(el) {
 }
 
 const brushSeg = document.getElementById("brushSeg");
-const qualitySeg = document.getElementById("qualitySeg");
+const particleSlider = document.getElementById("particleSlider");
 const particleCountOut = document.getElementById("particleCountOut");
 const fxSeg = document.getElementById("fxSeg");
 const shapeInput = document.getElementById("shapeInput");
@@ -1554,11 +1553,27 @@ colorInput.addEventListener("input", () => {
   applyParticleColor(colorInput.value);
 });
 
-colorSeg.addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-color]");
-  if (!btn) return;
-  applyParticleColor(btn.dataset.color);
-});
+// Particle slider event - adjust particle amount
+if (particleSlider) {
+  particleSlider.addEventListener("input", () => {
+    const val = parseInt(particleSlider.value, 10);
+    state.particleAmount = val;
+    // Map slider 1-100 to texture size
+    // Higher slider = more particles = larger texture
+    const baseSize = 128;
+    const maxSize = 768;
+    const fraction = val / 100;
+    const newSize = Math.round(baseSize + (maxSize - baseSize) * fraction * fraction);
+    state.perf.quality = "auto";
+    // Force reinit with new size
+    destroyParticleResources(particleResources);
+    particleResources = null;
+    initParticles();
+    initTrail();
+    rebuildShapeTargetTexture();
+    updateParticleCountUi({ includeFps: false });
+  });
+}
 
 shapeInput.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -1571,9 +1586,7 @@ meltBtn.addEventListener("click", triggerShapeMelt);
 
 window.addEventListener("keydown", (e) => {
   if (isTypingTarget(e.target)) return;
-  if (e.key.toLowerCase() === "q") state.brush = "push";
-  if (e.key.toLowerCase() === "w") state.brush = "pull";
-  if (e.key.toLowerCase() === "e") state.brush = "vortex";
+  // Removed brush key handlers (Q, W, E) - brush is now vortex only
   if (e.key === "1") setFxMode("neon");
   if (e.key === "2") setFxMode("prism");
   if (e.key === "3") setFxMode("plasma");
@@ -1586,8 +1599,7 @@ window.addEventListener("keydown", (e) => {
     state.shape.dirty = true;
   }
   if (e.key === "Enter" && document.activeElement !== shapeInput) triggerShapeForm();
-  setActiveButton(brushSeg, "brush", state.brush);
-  setActiveButton(qualitySeg, "quality", state.perf.quality);
+  // Removed brush-related setActiveButton calls
   setActiveButton(fxSeg, "fx", state.fx.mode);
   setActiveButton(layoutSeg, "layout", state.shape.layout);
   updateShapeActionButtons();
@@ -1718,12 +1730,28 @@ function trailStep() {
   gl.uniform1f(getUniform(particleProgram, "uPointScale"), pointScale);
   gl.uniform1f(getUniform(particleProgram, "uTime"), state.time);
   gl.uniform1i(getUniform(particleProgram, "uMood"), moodIndex());
+  
+  // Get current cycling colors
+  const colors = state.colorCycle.colors;
+  const currentIdx = state.colorCycle.currentIndex;
+  const nextIdx = state.colorCycle.nextIndex;
+  const currentColor = colors[currentIdx];
+  const nextColor = colors[nextIdx];
+  const tintMix = state.colorCycle.mix;
+  
   gl.uniform3f(
     getUniform(particleProgram, "uTint"),
-    state.color.rgb[0],
-    state.color.rgb[1],
-    state.color.rgb[2],
+    currentColor[0],
+    currentColor[1],
+    currentColor[2],
   );
+  gl.uniform3f(
+    getUniform(particleProgram, "uTint2"),
+    nextColor[0],
+    nextColor[1],
+    nextColor[2],
+  );
+  gl.uniform1f(getUniform(particleProgram, "uTintMix"), tintMix);
   gl.uniform4f(
     getUniform(particleProgram, "uFx"),
     fx.particleSpark,
@@ -1795,17 +1823,46 @@ function frame(nowMs) {
   state.shape.mix += (state.shape.targetMix - state.shape.mix) * (1 - Math.exp(-dt * shapeRate));
   updateShapeActionButtons();
 
+  // Update color cycling - slow rotation through color combinations
+  // Full cycle takes about 12 seconds
+  const cycleSpeed = 0.08; 
+  state.colorCycle.mix += dt * cycleSpeed;
+  if (state.colorCycle.mix >= 1.0) {
+    state.colorCycle.mix = 0;
+    state.colorCycle.currentIndex = state.colorCycle.nextIndex;
+    state.colorCycle.nextIndex = (state.colorCycle.currentIndex + 1) % state.colorCycle.colors.length;
+  }
+
+  // Update CSS accent color
+  updateAccentColor();
+
   simStep(dt);
   trailStep();
   compositeToScreen();
   requestAnimationFrame(frame);
 }
 
+// Update CSS accent color based on current cycling color
+function updateAccentColor() {
+  const colors = state.colorCycle.colors;
+  const currentIdx = state.colorCycle.currentIndex;
+  const nextIdx = state.colorCycle.nextIndex;
+  const currentColor = colors[currentIdx];
+  const nextColor = colors[nextIdx];
+  const mix = state.colorCycle.mix;
+  
+  const r = Math.round((currentColor[0] * (1 - mix) + nextColor[0] * mix) * 255);
+  const g = Math.round((currentColor[1] * (1 - mix) + nextColor[1] * mix) * 255);
+  const b = Math.round((currentColor[2] * (1 - mix) + nextColor[2] * mix) * 255);
+  
+  const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  document.documentElement.style.setProperty("--accent", hex);
+}
+
 resize();
 window.addEventListener("resize", resize);
 rebuildShapeTargetTexture();
-applyParticleColor(state.color.hex);
-setActiveButton(qualitySeg, "quality", state.perf.quality);
+updateAccentColor();
 setActiveButton(fxSeg, "fx", state.fx.mode);
 setRustUiVisible(false);
 updateParticleCountUi({ includeFps: false });

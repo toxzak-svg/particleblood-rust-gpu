@@ -7,8 +7,8 @@
     <link rel="stylesheet" href="/styles-be3d65c6eb4f5bef.css" integrity="sha384-noBChsCyuXC7Dt/5MdRd234fJ7abLyyjNRAOz6xcQW/sranmO/UqsehYhgNM2oIO"/>
     
 <script type="module">
-import init, * as bindings from '/rustyparts-82e21ea75a7c1a6e.js';
-const wasm = await init({ module_or_path: '/rustyparts-82e21ea75a7c1a6e_bg.wasm' });
+import init, * as bindings from '/rustyparts-dd1e76fee6dc8364.js';
+const wasm = await init({ module_or_path: '/rustyparts-dd1e76fee6dc8364_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -17,7 +17,7 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-  <link rel="modulepreload" href="/rustyparts-82e21ea75a7c1a6e.js" crossorigin="anonymous" integrity="sha384-ImzcNrMs5WMTWpcTr3JrRgg66AKhBaQsgEiExGAonASQdQcMk6rFkS6A4W4QyubI"><link rel="preload" href="/rustyparts-82e21ea75a7c1a6e_bg.wasm" crossorigin="anonymous" integrity="sha384-PHfBcQdAa34wOmdRZMf64u4zyV9XmlabtykIXFi2pxY3EFGuf8X1WMybaS54x88A" as="fetch" type="application/wasm"></head>
+  <link rel="modulepreload" href="/rustyparts-dd1e76fee6dc8364.js" crossorigin="anonymous" integrity="sha384-FBaG8exTyUaLen0Yc6h7h01Po43wGcgtvIgDoWhJODT1K1ok3UfoEEvzR9j/4a2u"><link rel="preload" href="/rustyparts-dd1e76fee6dc8364_bg.wasm" crossorigin="anonymous" integrity="sha384-TWqv+FzeToH7LkhkVkrsCiMKt9jd+uX3ZrnejMO6voDSPNBKuqKJbKYJ4DXNvPid" as="fetch" type="application/wasm"></head>
   <body>
     <canvas id="app" aria-label="Interactive particle field"></canvas>
     <div class="hud">
@@ -38,9 +38,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
           <div class="row">
             <span class="label">Brush</span>
             <div class="seg" id="brushSeg">
-              <button type="button" data-brush="push" class="is-active">Push</button>
-              <button type="button" data-brush="pull">Pull</button>
-              <button type="button" data-brush="vortex">Vortex</button>
+              <button type="button" data-brush="vortex" class="is-active">Vortex</button>
             </div>
           </div>
           <div class="row">
@@ -63,7 +61,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
           <div class="row row-shape">
             <span class="label">Shape</span>
             <div class="shape-controls">
-              <input id="shapeInput" type="text" value="RUSTY PARTS" maxlength="18" aria-label="Shape text" />
+              <input id="shapeInput" type="text" value="TOUCH!" maxlength="18" aria-label="Shape text" />
               <div class="seg" id="layoutSeg" aria-label="Text layout mode">
                 <button type="button" data-layout="single" class="is-active">Big</button>
                 <button type="button" data-layout="multi">Many</button>
@@ -77,17 +75,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
           <div class="row">
             <span class="label">Color</span>
             <div class="look-controls">
-              <div class="seg" id="colorSeg" aria-label="Color presets">
-                <button type="button" data-color="#9bffb3" class="is-active">Mint</button>
-                <button type="button" data-color="#66d4ff">Ice</button>
-                <button type="button" data-color="#ffd36a">Gold</button>
-                <button type="button" data-color="#ff8ea8">Rose</button>
-              </div>
-              <label class="picker-wrap" for="colorInput">
-                <span class="picker-label">Picker</span>
-                <input id="colorInput" type="color" value="#9bffb3" aria-label="Particle color" />
-              </label>
-              <output id="colorHex" for="colorInput">#9BFFB3</output>
+              <span class="color-auto">Auto-cycling</span>
             </div>
           </div>
           <div class="row help">

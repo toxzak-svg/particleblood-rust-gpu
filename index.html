@@ -25,20 +25,8 @@
         </div>
         <div class="panel-body" id="panelBody">
           <div class="row">
-            <span class="label">Brush</span>
-            <div class="seg" id="brushSeg">
-              <button type="button" data-brush="push" class="is-active">Push</button>
-              <button type="button" data-brush="pull">Pull</button>
-              <button type="button" data-brush="vortex">Vortex</button>
-            </div>
-          </div>
-          <div class="row">
-            <span class="label">Power</span>
-            <div class="seg" id="qualitySeg" aria-label="Particle capacity preset">
-              <button type="button" data-quality="auto" class="is-active">Auto</button>
-              <button type="button" data-quality="ultra">Ultra</button>
-              <button type="button" data-quality="insane">Insane</button>
-            </div>
+            <span class="label">Particles</span>
+            <input type="range" id="particleSlider" min="1" max="100" value="50" aria-label="Particle amount" />
             <output id="particleCountOut" class="stat-pill" aria-live="polite">0 particles</output>
           </div>
           <div class="row">
@@ -52,7 +40,7 @@
           <div class="row row-shape">
             <span class="label">Shape</span>
             <div class="shape-controls">
-              <input id="shapeInput" type="text" value="RUSTY PARTS" maxlength="18" aria-label="Shape text" />
+              <input id="shapeInput" type="text" value="TOUCH!" maxlength="18" aria-label="Shape text" />
               <div class="seg" id="layoutSeg" aria-label="Text layout mode">
                 <button type="button" data-layout="single" class="is-active">Big</button>
                 <button type="button" data-layout="multi">Many</button>
@@ -66,17 +54,7 @@
           <div class="row">
             <span class="label">Color</span>
             <div class="look-controls">
-              <div class="seg" id="colorSeg" aria-label="Color presets">
-                <button type="button" data-color="#9bffb3" class="is-active">Mint</button>
-                <button type="button" data-color="#66d4ff">Ice</button>
-                <button type="button" data-color="#ffd36a">Gold</button>
-                <button type="button" data-color="#ff8ea8">Rose</button>
-              </div>
-              <label class="picker-wrap" for="colorInput">
-                <span class="picker-label">Picker</span>
-                <input id="colorInput" type="color" value="#9bffb3" aria-label="Particle color" />
-              </label>
-              <output id="colorHex" for="colorInput">#9BFFB3</output>
+              <span class="color-auto">Auto-cycling</span>
             </div>
           </div>
           <div class="row help">
@@ -85,8 +63,6 @@
             <span>Tap/click: toggle word</span>
             <span>Wheel: attractor mass</span>
             <span>Enter: form text</span>
-            <span>Q/W/E brush</span>
-            <span>Z/X/C power</span>
             <span>1/2/3 FX</span>
             <span>M: melt • T: layout</span>
           </div>

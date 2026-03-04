@@ -19,7 +19,7 @@ thread_local! {
 const TAP_TRIGGER_MAX_MS: f64 = 260.0;
 const TAP_TRIGGER_MAX_MOVE_PX: f32 = 16.0;
 const SHAPE_FORM_DURATION_S: f64 = 2.3;
-const DEFAULT_SHAPE_TEXT: &str = "RUSTY PARTS";
+const DEFAULT_SHAPE_TEXT: &str = "TOUCH!";
 const PARTICLE_RESOLUTION_SCALE: f64 = 1.30;
 const PARTICLE_TEX_LADDER: &[i32] = &[
     128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 896, 1024, 1280, 1536, 1792,
@@ -57,40 +57,8 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-vec3 bg(vec2 uv) {
-  vec2 p = uv * 2.0 - 1.0;
-  p.x *= uResolution.x / max(uResolution.y, 1.0);
-  float r = length(p);
-
-  vec3 c = mix(vec3(0.02, 0.03, 0.06), vec3(0.02, 0.06, 0.08), uv.y);
-  c += 0.06 * exp(-r * 2.4) * vec3(0.2, 0.6, 1.0);
-  c += 0.025 * exp(-length(p - vec2(0.65, -0.25)) * 3.0) * vec3(0.1, 1.0, 0.8);
-
-  if (uFxMode == 1) {
-    c += 0.032 * exp(-r * 1.7) * vec3(0.8, 0.35, 1.0) * (0.6 + 0.4 * sin(uTime * 0.8 + p.x * 4.0));
-    c += 0.018 * vec3(0.35, 0.9, 1.0) * sin(uTime * 0.35 + p.y * 7.0 + p.x * 3.0);
-  } else if (uFxMode == 2) {
-    float wave = 0.5 + 0.5 * sin(uTime * 0.9 + p.x * 6.5 - p.y * 4.2);
-    c += (0.025 + 0.025 * wave) * vec3(1.0, 0.35, 0.22);
-    c += 0.020 * exp(-length(p + vec2(0.48, 0.1)) * 2.2) * vec3(1.0, 0.65, 0.12);
-  }
-
-  return c;
-}
-
 void main() {
-  vec2 px = 1.0 / max(uResolution, vec2(1.0));
-  vec3 color = bg(vUv);
-  float vignette = smoothstep(1.35, 0.2, length((vUv - 0.5) * vec2(uResolution.x / max(uResolution.y, 1.0), 1.0)));
-  color *= 0.92 + 0.08 * vignette;
-  color = mix(color, color * (0.75 + 0.55 * uTint), 0.10 + 0.14 * uFx.w);
-  if (uFx.y > 0.001) {
-    color += vec3(
-      sin(uTime * 0.8 + vUv.y * 24.0),
-      sin(uTime * 0.7 + vUv.x * 19.0 + 1.7),
-      sin(uTime * 0.9 + (vUv.x + vUv.y) * 14.0 + 3.1)
-    ) * (0.002 + 0.008 * uFx.y);
-  }
+  vec3 color = vec3(0.0);
   if (uFx.z > 0.001) {
     float grain = hash12(vUv * uResolution + fract(uTime * 60.0));
     color += (grain - 0.5) * (0.004 + 0.018 * uFx.z);
@@ -115,10 +83,12 @@ void main() {
   float speed = length(state.zw);
   float aspect = uResolution.x / max(uResolution.y, 1.0);
   gl_Position = vec4(aPos.x / aspect, aPos.y, 0.0, 1.0);
-  gl_PointSize = uPointScale * (1.0 + speed * 3.2);
+  // Fixed size - sand particles don't grow when moving fast
+  gl_PointSize = uPointScale;
   vMeta = vec2(meta.x, speed);
 }
 "#;
+
 
 const PARTICLE_FS: &str = r#"#version 300 es
 precision highp float;
@@ -133,32 +103,26 @@ void main() {
   float r2 = dot(p, p);
   if (r2 > 1.0) discard;
 
-  float speedSharp = 1.0 + vMeta.y * 2.8;
-  float core = exp(-r2 * (5.0 + speedSharp * 4.0));
-  float ring = exp(-abs(sqrt(r2) - 0.45) * (12.0 + speedSharp * 3.0));
-  float flare = pow(max(0.0, 1.0 - abs(p.x * p.y) * 18.0), 3.0) * uFx.z;
-  flare += pow(max(0.0, 1.0 - abs(p.x) * 2.8), 8.0) * uFx.z * 0.18;
-  flare += pow(max(0.0, 1.0 - abs(p.y) * 2.8), 8.0) * uFx.z * 0.18;
-
+  // Sand-like: solid matte particles, no glow rings or flares
+  float core = exp(-r2 * 8.0);
+  
   float seed = vMeta.x;
   float speed = vMeta.y;
-  float hueShift = fract(seed + speed * 0.22 + uTime * 0.02);
-  vec3 baseA = vec3(0.08, 0.7, 1.0);
-  vec3 baseB = vec3(0.12, 1.0, 0.65);
-  vec3 baseC = vec3(1.0, 0.4, 0.18);
-  vec3 col = mix(baseA, baseB, smoothstep(0.1, 0.8, hueShift));
-  col = mix(col, baseC, smoothstep(0.7, 1.0, hueShift));
-  if (uFxMode == 1) col = mix(col, vec3(0.8, 0.6, 1.0), 0.18 * (0.5 + 0.5 * sin(uTime + seed * 6.2831)));
-  if (uFxMode == 2) col = mix(col, vec3(1.0, 0.45, 0.16), 0.16 + 0.14 * smoothstep(0.0, 1.2, speed));
-  col = mix(col, uTint, 0.72);
+  
+  // Sand/earth tones - more muted, matte colors
+  vec3 baseA = vec3(0.76, 0.70, 0.55); // tan/sand
+  vec3 baseB = vec3(0.82, 0.65, 0.45);  // ochre
+  vec3 baseC = vec3(0.65, 0.55, 0.45);  // brownish
+  vec3 col = mix(baseA, baseB, smoothstep(0.0, 1.0, seed));
+  col = mix(col, baseC, smoothstep(0.5, 1.0, speed * 0.5));
+  col = mix(col, uTint, 0.35);
 
-  float alpha = core * (0.48 + 0.12 * uFx.w) + ring * (0.08 + 0.14 * uFx.y);
-  alpha += flare * (0.06 + 0.12 * uFx.x);
-  float outAlpha = clamp(alpha * (0.82 + 0.18 * uFx.w), 0.0, 0.9);
-  float drive = 0.38 + speed * (0.62 + 0.28 * uFx.x);
-  drive = drive / (1.0 + drive * (0.45 + 0.25 * uFx.x));
-  float glow = 0.76 + 0.64 * drive;
-  outColor = vec4(col * outAlpha * glow, outAlpha);
+  // Solid matte appearance - no additive glow
+  float outAlpha = core * 0.85;
+  outAlpha = clamp(outAlpha, 0.0, 0.85);
+  
+  // No glow multiplication - matte finish
+  outColor = vec4(col * outAlpha, outAlpha);
 }
 "#;
 
@@ -1563,45 +1527,47 @@ fn quality_preset(mode: QualityMode) -> QualityPreset {
 }
 
 fn fx_preset(mode: FxMode) -> FxPreset {
+    // Reduced glow effects for sand-like particles - less CPU/GPU work
     match mode {
         FxMode::Neon => FxPreset {
             mode: 0,
-            bloom: 1.0,
+            bloom: 0.0,
             chroma: 0.0,
-            grain: 0.08,
-            bg_pulse: 0.18,
-            particle_spark: 0.38,
-            ring_gain: 0.35,
-            flare: 0.28,
-            alpha_gain: 0.92,
-            flow_gain: 0.25,
+            grain: 0.0,
+            bg_pulse: 0.0,
+            particle_spark: 0.0,
+            ring_gain: 0.0,
+            flare: 0.0,
+            alpha_gain: 0.85,
+            flow_gain: 0.0,
         },
         FxMode::Prism => FxPreset {
             mode: 1,
-            bloom: 1.22,
-            chroma: 0.55,
-            grain: 0.22,
-            bg_pulse: 0.32,
-            particle_spark: 0.82,
-            ring_gain: 0.72,
-            flare: 0.58,
-            alpha_gain: 1.05,
-            flow_gain: 0.42,
+            bloom: 0.0,
+            chroma: 0.0,
+            grain: 0.0,
+            bg_pulse: 0.0,
+            particle_spark: 0.0,
+            ring_gain: 0.0,
+            flare: 0.0,
+            alpha_gain: 0.85,
+            flow_gain: 0.0,
         },
         FxMode::Plasma => FxPreset {
             mode: 2,
-            bloom: 1.34,
-            chroma: 0.24,
-            grain: 0.30,
-            bg_pulse: 0.52,
-            particle_spark: 1.0,
-            ring_gain: 0.88,
-            flare: 0.82,
-            alpha_gain: 1.12,
-            flow_gain: 0.55,
+            bloom: 0.0,
+            chroma: 0.0,
+            grain: 0.0,
+            bg_pulse: 0.0,
+            particle_spark: 0.0,
+            ring_gain: 0.0,
+            flare: 0.0,
+            alpha_gain: 0.85,
+            flow_gain: 0.0,
         },
     }
 }
+
 
 fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
     let window = app.borrow().window.clone();
