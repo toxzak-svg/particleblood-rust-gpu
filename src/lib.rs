@@ -23,7 +23,7 @@ const DEFAULT_SHAPE_TEXT: &str = "TOUCH!";
 const PARTICLE_RESOLUTION_SCALE: f64 = 1.30;
 const PARTICLE_TEX_LADDER: &[i32] = &[
     128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 896, 1024, 1280, 1536, 1792,
-    2048,
+    2048, 2304,
 ];
 
 const FULLSCREEN_VS: &str = r#"#version 300 es
@@ -541,7 +541,7 @@ impl App {
                 width: 1,
                 height: 1,
                 brush: BrushMode::Push,
-                quality: QualityMode::Auto,
+                quality: QualityMode::Insane,
                 fx: FxMode::Neon,
                 color_hex: "#9bffb3".to_string(),
                 color_rgb: hex_to_rgb01("#9bffb3"),
@@ -689,7 +689,7 @@ impl App {
             target = target.min(((512.0_f64) * PARTICLE_RESOLUTION_SCALE).round() as i32);
         }
         if self.state.quality == QualityMode::Insane && area > 10_500_000.0 {
-            target = ((1024.0_f64) * PARTICLE_RESOLUTION_SCALE).round() as i32;
+            target = ((2304.0_f64) * PARTICLE_RESOLUTION_SCALE).round() as i32;
         }
 
         choose_particle_tex_from_ladder(target, final_cap)
@@ -1519,8 +1519,8 @@ fn quality_preset(mode: QualityMode) -> QualityPreset {
             point_scale_mul: 0.94,
         },
         QualityMode::Insane => QualityPreset {
-            max_desktop_tex: 1024,
-            max_mobile_tex: 704,
+            max_desktop_tex: 2304,
+            max_mobile_tex: 1280,
             point_scale_mul: 0.84,
         },
     }

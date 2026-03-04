@@ -7,8 +7,8 @@
     <link rel="stylesheet" href="/styles-be3d65c6eb4f5bef.css" integrity="sha384-noBChsCyuXC7Dt/5MdRd234fJ7abLyyjNRAOz6xcQW/sranmO/UqsehYhgNM2oIO"/>
     
 <script type="module">
-import init, * as bindings from '/rustyparts-dd1e76fee6dc8364.js';
-const wasm = await init({ module_or_path: '/rustyparts-dd1e76fee6dc8364_bg.wasm' });
+import init, * as bindings from '/rustyparts-a26fac550d2ba77.js';
+const wasm = await init({ module_or_path: '/rustyparts-a26fac550d2ba77_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -17,7 +17,7 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-  <link rel="modulepreload" href="/rustyparts-dd1e76fee6dc8364.js" crossorigin="anonymous" integrity="sha384-FBaG8exTyUaLen0Yc6h7h01Po43wGcgtvIgDoWhJODT1K1ok3UfoEEvzR9j/4a2u"><link rel="preload" href="/rustyparts-dd1e76fee6dc8364_bg.wasm" crossorigin="anonymous" integrity="sha384-TWqv+FzeToH7LkhkVkrsCiMKt9jd+uX3ZrnejMO6voDSPNBKuqKJbKYJ4DXNvPid" as="fetch" type="application/wasm"></head>
+  <link rel="modulepreload" href="/rustyparts-a26fac550d2ba77.js" crossorigin="anonymous" integrity="sha384-ImzcNrMs5WMTWpcTr3JrRgg66AKhBaQsgEiExGAonASQdQcMk6rFkS6A4W4QyubI"><link rel="preload" href="/rustyparts-a26fac550d2ba77_bg.wasm" crossorigin="anonymous" integrity="sha384-K9RPVtVKD665Cqc+KRcZWcDAZa6G+3+jls8usbKS5KVGdIph2oQIEWGy3+G8Z80e" as="fetch" type="application/wasm"></head>
   <body>
     <canvas id="app" aria-label="Interactive particle field"></canvas>
     <div class="hud">
@@ -36,18 +36,8 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
         </div>
         <div class="panel-body" id="panelBody">
           <div class="row">
-            <span class="label">Brush</span>
-            <div class="seg" id="brushSeg">
-              <button type="button" data-brush="vortex" class="is-active">Vortex</button>
-            </div>
-          </div>
-          <div class="row">
-            <span class="label">Power</span>
-            <div class="seg" id="qualitySeg" aria-label="Particle capacity preset">
-              <button type="button" data-quality="auto" class="is-active">Auto</button>
-              <button type="button" data-quality="ultra">Ultra</button>
-              <button type="button" data-quality="insane">Insane</button>
-            </div>
+            <span class="label">Particles</span>
+            <input type="range" id="particleSlider" min="1" max="100" value="50" aria-label="Particle amount" />
             <output id="particleCountOut" class="stat-pill" aria-live="polite">0 particles</output>
           </div>
           <div class="row">
@@ -74,8 +64,14 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
           </div>
           <div class="row">
             <span class="label">Color</span>
-            <div class="look-controls">
-              <span class="color-auto">Auto-cycling</span>
+            <div class="seg" id="colorSeg" aria-label="Color mode">
+              <button type="button" data-color="auto" class="is-active">Auto</button>
+              <button type="button" data-color="mint">Mint</button>
+              <button type="button" data-color="ice">Ice</button>
+              <button type="button" data-color="gold">Gold</button>
+              <button type="button" data-color="rose">Rose</button>
+              <button type="button" data-color="purple">Purple</button>
+              <button type="button" data-color="orange">Orange</button>
             </div>
           </div>
           <div class="row help">
@@ -84,8 +80,6 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
             <span>Tap/click: toggle word</span>
             <span>Wheel: attractor mass</span>
             <span>Enter: form text</span>
-            <span>Q/W/E brush</span>
-            <span>Z/X/C power</span>
             <span>1/2/3 FX</span>
             <span>M: melt • T: layout</span>
           </div>

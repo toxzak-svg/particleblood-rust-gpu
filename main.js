@@ -137,7 +137,13 @@ const state = {
     tapHoldDuration: 0.9,
     dirty: true,
   },
+  color: {
+    hex: "#9bffb3",
+    rgb: [0.6078, 1.0, 0.702],
+  },
+  colorMode: "auto",  // "auto" or a specific color
   colorCycle: {
+    enabled: true,
     colors: [
       [0.6078, 1.0, 0.702],    // Mint
       [0.4, 0.8274, 1.0],      // Ice blue
@@ -151,6 +157,17 @@ const state = {
     mix: 0,
     rgb: [0.6078, 1.0, 0.702],
   },
+  // Static color presets for manual mode
+  colorPresets: {
+    mint: [0.6078, 1.0, 0.702],
+    ice: [0.4, 0.8274, 1.0],
+    gold: [1.0, 0.8274, 0.416],
+    rose: [1.0, 0.557, 0.659],
+    purple: [0.6, 0.4, 1.0],
+    orange: [1.0, 0.6, 0.2],
+  },
+  charging: false,
+  chargeLevel: 0,
   perf: {
     quality: "auto",
   },
@@ -1453,6 +1470,17 @@ if (fxSeg) {
   });
 }
 
+// Color mode toggle
+if (colorSeg) {
+  colorSeg.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-color]");
+    if (!btn) return;
+    const colorMode = btn.dataset.color;
+    state.colorMode = colorMode;
+    setActiveButton(colorSeg, "color", colorMode);
+  });
+}
+
 if (rustUiBtn) {
   rustUiBtn.addEventListener("click", () => {
     setRustUiVisible(!state.rustUi.enabled);
@@ -1726,7 +1754,8 @@ function trailStep() {
   gl.bindTexture(gl.TEXTURE_2D, particles.vel);
   gl.uniform1i(getUniform(particleProgram, "uVelTex"), 1);
   gl.uniform2f(getUniform(particleProgram, "uResolution"), res.width, res.height);
-  const pointScale = Math.max(1.15, Math.min(3.6, state.dpr * 1.9 * q.pointScaleMul));
+  // Make particles bigger for better visibility
+  const pointScale = Math.max(2.5, Math.min(5.5, state.dpr * 2.8 * q.pointScaleMul));
   gl.uniform1f(getUniform(particleProgram, "uPointScale"), pointScale);
   gl.uniform1f(getUniform(particleProgram, "uTime"), state.time);
   gl.uniform1i(getUniform(particleProgram, "uMood"), moodIndex());
@@ -1773,6 +1802,20 @@ function compositeToScreen() {
   const trail = trailResources.buffers[trailResources.readIndex];
   const fx = getFxPreset();
   const compositeProgram = programs.composite;
+  
+  // Get current cycling colors for composite tint
+  const colors = state.colorCycle.colors;
+  const currentIdx = state.colorCycle.currentIndex;
+  const nextIdx = state.colorCycle.nextIndex;
+  const currentColor = colors[currentIdx];
+  const nextColor = colors[nextIdx];
+  const tintMix = state.colorCycle.mix;
+  
+  // Blend between current and next color
+  const tintR = currentColor[0] * (1 - tintMix) + nextColor[0] * tintMix;
+  const tintG = currentColor[1] * (1 - tintMix) + nextColor[1] * tintMix;
+  const tintB = currentColor[2] * (1 - tintMix) + nextColor[2] * tintMix;
+  
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, state.width, state.height);
   gl.disable(gl.BLEND);
@@ -1784,9 +1827,9 @@ function compositeToScreen() {
   gl.uniform1f(getUniform(compositeProgram, "uTime"), state.time);
   gl.uniform3f(
     getUniform(compositeProgram, "uTint"),
-    state.color.rgb[0],
-    state.color.rgb[1],
-    state.color.rgb[2],
+    tintR,
+    tintG,
+    tintB,
   );
   gl.uniform4f(getUniform(compositeProgram, "uFx"), fx.bloom, fx.chroma, fx.grain, fx.bgPulse);
   gl.uniform1i(getUniform(compositeProgram, "uFxMode"), fx.mode);
@@ -1823,14 +1866,22 @@ function frame(nowMs) {
   state.shape.mix += (state.shape.targetMix - state.shape.mix) * (1 - Math.exp(-dt * shapeRate));
   updateShapeActionButtons();
 
-  // Update color cycling - slow rotation through color combinations
+  // Update color cycling - slow rotation through color combinations (only in auto mode)
   // Full cycle takes about 12 seconds
-  const cycleSpeed = 0.08; 
-  state.colorCycle.mix += dt * cycleSpeed;
-  if (state.colorCycle.mix >= 1.0) {
+  if (state.colorMode === "auto") {
+    const cycleSpeed = 0.08; 
+    state.colorCycle.mix += dt * cycleSpeed;
+    if (state.colorCycle.mix >= 1.0) {
+      state.colorCycle.mix = 0;
+      state.colorCycle.currentIndex = state.colorCycle.nextIndex;
+      state.colorCycle.nextIndex = (state.colorCycle.currentIndex + 1) % state.colorCycle.colors.length;
+    }
+  } else {
+    // Reset to static color mode
     state.colorCycle.mix = 0;
-    state.colorCycle.currentIndex = state.colorCycle.nextIndex;
-    state.colorCycle.nextIndex = (state.colorCycle.currentIndex + 1) % state.colorCycle.colors.length;
+    state.colorCycle.currentIndex = state.colorCycle.colors.indexOf(state.colorPresets[state.colorMode]);
+    if (state.colorCycle.currentIndex === -1) state.colorCycle.currentIndex = 0;
+    state.colorCycle.nextIndex = state.colorCycle.currentIndex;
   }
 
   // Update CSS accent color
@@ -1864,6 +1915,7 @@ window.addEventListener("resize", resize);
 rebuildShapeTargetTexture();
 updateAccentColor();
 setActiveButton(fxSeg, "fx", state.fx.mode);
+setActiveButton(colorSeg, "color", state.colorMode);
 setRustUiVisible(false);
 updateParticleCountUi({ includeFps: false });
 updateShapeActionButtons();
