@@ -21,6 +21,10 @@ const TAP_TRIGGER_MAX_MOVE_PX: f32 = 16.0;
 const SHAPE_FORM_DURATION_S: f64 = 2.3;
 const DEFAULT_SHAPE_TEXT: &str = "TOUCH!";
 const PARTICLE_RESOLUTION_SCALE: f64 = 1.30;
+const COLOR_SHIFT_MIN_S: f64 = 2.6;
+const COLOR_SHIFT_MAX_S: f64 = 5.4;
+const COLOR_HOLD_MIN_S: f64 = 1.2;
+const COLOR_HOLD_MAX_S: f64 = 3.6;
 const PARTICLE_TEX_LADDER: &[i32] = &[
     128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 896, 1024, 1280, 1536, 1792,
     2048, 2304,
@@ -95,7 +99,8 @@ precision highp float;
 in vec2 vMeta;
 out vec4 outColor;
 uniform float uTime;
-uniform vec3 uTint;
+uniform vec3 uTintA;
+uniform vec3 uTintB;
 uniform vec4 uFx; // x spark, y ring, z flare, w alpha
 uniform int uFxMode;
 void main() {
@@ -109,13 +114,11 @@ void main() {
   float seed = vMeta.x;
   float speed = vMeta.y;
   
-  // Sand/earth tones - more muted, matte colors
-  vec3 baseA = vec3(0.76, 0.70, 0.55); // tan/sand
-  vec3 baseB = vec3(0.82, 0.65, 0.45);  // ochre
-  vec3 baseC = vec3(0.65, 0.55, 0.45);  // brownish
-  vec3 col = mix(baseA, baseB, smoothstep(0.0, 1.0, seed));
-  col = mix(col, baseC, smoothstep(0.5, 1.0, speed * 0.5));
-  col = mix(col, uTint, 0.35);
+  // Two-tone palette with subtle per-particle drift.
+  float wave = 0.5 + 0.5 * sin(uTime * 0.42 + seed * 12.0);
+  float toneMix = clamp(mix(seed, wave, 0.24) + speed * 0.05, 0.0, 1.0);
+  vec3 col = mix(uTintA, uTintB, toneMix);
+  col *= (0.76 + core * 0.34);
 
   // Solid matte appearance - no additive glow
   float outAlpha = core * 0.85;
@@ -386,6 +389,14 @@ struct AppState {
     fx: FxMode,
     color_hex: String,
     color_rgb: [f32; 3],
+    color_alt_rgb: [f32; 3],
+    color_from_rgb: [f32; 3],
+    color_alt_from_rgb: [f32; 3],
+    color_target_rgb: [f32; 3],
+    color_alt_target_rgb: [f32; 3],
+    color_shift_start_s: f64,
+    color_shift_end_s: f64,
+    color_hold_until_s: f64,
     pointer: PointerState,
     attractor: AttractorState,
     shape: ShapeState,
@@ -443,6 +454,7 @@ struct App {
     ui: UiRefs,
     max_texture_size: i32,
     debug_tex_override: Option<i32>,
+    rng: Lcg,
     state: AppState,
 }
 
@@ -534,6 +546,7 @@ impl App {
             ui,
             max_texture_size,
             debug_tex_override,
+            rng: Lcg::seeded(),
             state: AppState {
                 time: 0.0,
                 last_time: 0.0,
@@ -545,6 +558,14 @@ impl App {
                 fx: FxMode::Neon,
                 color_hex: "#9bffb3".to_string(),
                 color_rgb: hex_to_rgb01("#9bffb3"),
+                color_alt_rgb: hex_to_rgb01("#ff8ca4"),
+                color_from_rgb: hex_to_rgb01("#9bffb3"),
+                color_alt_from_rgb: hex_to_rgb01("#ff8ca4"),
+                color_target_rgb: hex_to_rgb01("#9bffb3"),
+                color_alt_target_rgb: hex_to_rgb01("#ff8ca4"),
+                color_shift_start_s: 0.0,
+                color_shift_end_s: 0.0,
+                color_hold_until_s: 0.0,
                 pointer: PointerState {
                     radius: 0.18,
                     strength: 1.0,
@@ -731,6 +752,7 @@ impl App {
 
         self.state.pointer.vx *= 0.9;
         self.state.pointer.vy *= 0.9;
+        self.step_random_color_shift();
 
         if self.state.shape.release_at > 0.0 && self.state.time >= self.state.shape.release_at {
             self.state.shape.target_mix = 0.0;
@@ -926,7 +948,7 @@ impl App {
             self.state.height as f32,
         );
         let point_scale =
-            (self.state.dpr as f32 * 2.28 * quality_preset(self.state.quality).point_scale_mul)
+            (self.state.dpr as f32 * 2.5 * quality_preset(self.state.quality).point_scale_mul)
                 .clamp(1.35, 4.8);
         self.gl.uniform1f(
             self.uniform(&self.programs.particle, "uPointScale")
@@ -938,10 +960,16 @@ impl App {
             self.state.time as f32,
         );
         self.gl.uniform3f(
-            self.uniform(&self.programs.particle, "uTint").as_ref(),
+            self.uniform(&self.programs.particle, "uTintA").as_ref(),
             self.state.color_rgb[0],
             self.state.color_rgb[1],
             self.state.color_rgb[2],
+        );
+        self.gl.uniform3f(
+            self.uniform(&self.programs.particle, "uTintB").as_ref(),
+            self.state.color_alt_rgb[0],
+            self.state.color_alt_rgb[1],
+            self.state.color_alt_rgb[2],
         );
         self.gl.uniform4f(
             self.uniform(&self.programs.particle, "uFx").as_ref(),
@@ -1043,9 +1071,57 @@ impl App {
         (x as f32, y as f32, nx, ny)
     }
 
+    fn schedule_random_palette_shift(&mut self, now_s: f64) {
+        self.state.color_from_rgb = self.state.color_rgb;
+        self.state.color_alt_from_rgb = self.state.color_alt_rgb;
+
+        let (to_a, to_b) = random_two_tone_pair(&mut self.rng);
+        self.state.color_target_rgb = to_a;
+        self.state.color_alt_target_rgb = to_b;
+
+        let duration = COLOR_SHIFT_MIN_S + (COLOR_SHIFT_MAX_S - COLOR_SHIFT_MIN_S) * self.rng.f32() as f64;
+        let hold = COLOR_HOLD_MIN_S + (COLOR_HOLD_MAX_S - COLOR_HOLD_MIN_S) * self.rng.f32() as f64;
+
+        self.state.color_shift_start_s = now_s;
+        self.state.color_shift_end_s = now_s + duration;
+        self.state.color_hold_until_s = self.state.color_shift_end_s + hold;
+    }
+
+    fn step_random_color_shift(&mut self) {
+        let now_s = self.state.time;
+        if self.state.color_shift_end_s <= self.state.color_shift_start_s {
+            self.schedule_random_palette_shift(now_s);
+        } else if now_s >= self.state.color_hold_until_s {
+            self.schedule_random_palette_shift(now_s);
+        }
+
+        let span = (self.state.color_shift_end_s - self.state.color_shift_start_s).max(1e-6);
+        let t = ((now_s - self.state.color_shift_start_s) / span).clamp(0.0, 1.0) as f32;
+        let eased = t * t * (3.0 - 2.0 * t);
+        self.state.color_rgb = lerp_rgb(self.state.color_from_rgb, self.state.color_target_rgb, eased);
+        self.state.color_alt_rgb =
+            lerp_rgb(self.state.color_alt_from_rgb, self.state.color_alt_target_rgb, eased);
+    }
+
     fn apply_particle_color(&mut self, hex: &str) -> Result<(), JsValue> {
         let normalized = normalize_hex_color(hex).unwrap_or_else(|| "#9bffb3".to_string());
-        self.state.color_rgb = hex_to_rgb01(&normalized);
+        let base = hex_to_rgb01(&normalized);
+        let (h, s, v) = rgb_to_hsv(base);
+        let sign = if self.rng.f32() > 0.5 { 1.0 } else { -1.0 };
+        let partner_h = wrap01(h + sign * (0.22 + 0.15 * self.rng.f32()));
+        let partner_s = clamp_f32((s * 0.82) + 0.16, 0.38, 0.96);
+        let partner_v = clamp_f32((v * 0.88) + 0.08, 0.44, 0.98);
+        let partner = hsv_to_rgb(partner_h, partner_s, partner_v);
+
+        self.state.color_rgb = base;
+        self.state.color_alt_rgb = partner;
+        self.state.color_from_rgb = base;
+        self.state.color_alt_from_rgb = partner;
+        self.state.color_target_rgb = base;
+        self.state.color_alt_target_rgb = partner;
+        self.state.color_shift_start_s = self.state.time;
+        self.state.color_shift_end_s = self.state.time;
+        self.state.color_hold_until_s = self.state.time;
         self.state.color_hex = normalized.clone();
 
         if let Some(input) = &self.ui.color_input {
@@ -1060,6 +1136,7 @@ impl App {
             }
         }
 
+        self.schedule_random_palette_shift(self.state.time);
         set_active_button(&self.ui.color_seg, "color", &normalized)?;
         Ok(())
     }
@@ -2394,6 +2471,95 @@ fn hex_to_rgb01(hex: &str) -> [f32; 3] {
         ((v >> 8) & 0xff) as f32 / 255.0,
         (v & 0xff) as f32 / 255.0,
     ]
+}
+
+fn lerp_rgb(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+    ]
+}
+
+fn random_two_tone_pair(rng: &mut Lcg) -> ([f32; 3], [f32; 3]) {
+    let h1 = rng.f32();
+    let hue_gap = 0.20 + 0.28 * rng.f32();
+    let sign = if rng.f32() > 0.5 { 1.0 } else { -1.0 };
+    let h2 = wrap01(h1 + sign * hue_gap);
+
+    let s1 = 0.52 + 0.40 * rng.f32();
+    let v1 = 0.74 + 0.24 * rng.f32();
+    let s2 = 0.46 + 0.44 * rng.f32();
+    let mut v2 = 0.62 + 0.30 * rng.f32();
+
+    let color_a = hsv_to_rgb(h1, s1, v1);
+    let mut color_b = hsv_to_rgb(h2, s2, v2);
+    let lum_delta = (relative_luma(color_a) - relative_luma(color_b)).abs();
+    if lum_delta < 0.14 {
+        v2 = if relative_luma(color_a) > 0.5 {
+            (v2 * 0.72).max(0.38)
+        } else {
+            (v2 * 1.18).min(1.0)
+        };
+        color_b = hsv_to_rgb(h2, s2, v2);
+    }
+
+    (color_a, color_b)
+}
+
+fn rgb_to_hsv(rgb: [f32; 3]) -> (f32, f32, f32) {
+    let r = rgb[0];
+    let g = rgb[1];
+    let b = rgb[2];
+    let max = r.max(g.max(b));
+    let min = r.min(g.min(b));
+    let delta = max - min;
+    if delta <= 1e-6 {
+        return (0.0, 0.0, max);
+    }
+
+    let mut h = if (max - r).abs() <= 1e-6 {
+        (g - b) / delta
+    } else if (max - g).abs() <= 1e-6 {
+        ((b - r) / delta) + 2.0
+    } else {
+        ((r - g) / delta) + 4.0
+    };
+    h /= 6.0;
+    if h < 0.0 {
+        h += 1.0;
+    }
+    let s = if max <= 1e-6 { 0.0 } else { delta / max };
+    (h, s, max)
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
+    let h = wrap01(h) * 6.0;
+    let i = h.floor() as i32;
+    let f = h - i as f32;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - f * s);
+    let t = v * (1.0 - (1.0 - f) * s);
+    match i.rem_euclid(6) {
+        0 => [v, t, p],
+        1 => [q, v, p],
+        2 => [p, v, t],
+        3 => [p, q, v],
+        4 => [t, p, v],
+        _ => [v, p, q],
+    }
+}
+
+fn relative_luma(rgb: [f32; 3]) -> f32 {
+    rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
+}
+
+fn wrap01(v: f32) -> f32 {
+    let mut x = v % 1.0;
+    if x < 0.0 {
+        x += 1.0;
+    }
+    x
 }
 
 fn format_particle_count(count: usize) -> String {

@@ -119,7 +119,28 @@ body {
 }
 
 .row + .row {
-  margin-top: 10px;
+  margin-top: 8px;
+}
+
+.section {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.section:first-child {
+  padding-top: 0;
+}
+
+.section:last-of-type {
+  border-bottom: none;
+}
+
+.section-header {
+  margin-bottom: 8px;
+}
+
+.slider-full {
+  flex: 1;
 }
 
 .row-shape {
@@ -181,57 +202,6 @@ input[type="text"] {
 input[type="text"]:focus {
   border-color: rgba(155, 255, 179, 0.45);
   box-shadow: 0 0 0 3px rgba(155, 255, 179, 0.08);
-}
-
-input[type="color"] {
-  appearance: none;
-  width: 40px;
-  height: 36px;
-  border-radius: 10px;
-  border: 1px solid rgba(233, 242, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  padding: 3px;
-  cursor: pointer;
-}
-
-.picker-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 4px 2px 8px;
-  border: 1px solid rgba(233, 242, 255, 0.1);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.picker-label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-#colorHex {
-  min-width: 76px;
-  padding: 0 4px;
-  font-size: 12px;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-}
-
-input[type="color"]::-webkit-color-swatch-wrapper {
-  padding: 0;
-  border-radius: 999px;
-}
-
-input[type="color"]::-webkit-color-swatch {
-  border: none;
-  border-radius: 999px;
-}
-
-input[type="color"]::-moz-color-swatch {
-  border: none;
-  border-radius: 999px;
 }
 
 button {
@@ -297,11 +267,6 @@ button.is-active {
 #meltBtn.is-active {
   border-color: rgba(255, 172, 130, 0.52);
   background: rgba(255, 172, 130, 0.12);
-}
-
-#colorSeg button.is-active {
-  border-color: color-mix(in srgb, var(--accent) 55%, white 18%);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .help {

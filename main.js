@@ -225,17 +225,33 @@ function chooseParticleTexSize() {
   const baseCap = Math.max(128, Math.min(maxTextureSize, isLikelyMobile() ? q.maxMobileTex : q.maxDesktopTex));
   const cap = Math.max(128, Math.min(maxTextureSize, Math.floor(baseCap * PARTICLE_RESOLUTION_SCALE)));
   const ladder = [128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960];
-  let target = 256;
-  if (area < 320_000) target = 160;
-  else if (area < 650_000) target = 224;
-  else if (area < 1_150_000) target = 320
-  else if (area < 1_900_000) target = 384
-  else if (area < 2_800_000) target = 448
-  else if (area < 3_800_000) target = 512
-  else if (area < 5_200_000) target = 576
-  else if (area < 6_800_000) target = 640
-  else if (area < 8_500_000) target = 704
-  else target = 768;
+  
+  // Use particle slider value to determine base target size
+  // slider 1-100 maps to texture size range
+  const sliderFraction = Math.max(0, Math.min(1, state.particleAmount / 100));
+  const minSize = 128;
+  const maxSize = 960;
+  // Quadratic curve for more natural feel - low values give fewer particles, high values give more
+  const sliderBasedSize = Math.round(minSize + (maxSize - minSize) * sliderFraction * sliderFraction);
+  
+  let target = sliderBasedSize;
+  
+  // Also consider screen area as a minimum baseline
+  const areaBasedTarget = (() => {
+    if (area < 320_000) return 160;
+    if (area < 650_000) return 224;
+    if (area < 1_150_000) return 320;
+    if (area < 1_900_000) return 384;
+    if (area < 2_800_000) return 448;
+    if (area < 3_800_000) return 512;
+    if (area < 5_200_000) return 576;
+    if (area < 6_800_000) return 640;
+    if (area < 8_500_000) return 704;
+    return 768;
+  })();
+  
+  // Take the larger of slider-based or area-based size, capped by quality
+  target = Math.max(target, areaBasedTarget);
 
   target = Math.round(target * PARTICLE_RESOLUTION_SCALE);
 
@@ -1323,7 +1339,7 @@ function updateShapeActionButtons() {
 
 function isTypingTarget(el) {
   if (!el) return false;
-  if (el === shapeInput || el === colorInput) return true;
+  if (el === shapeInput) return true;
   return (
     el instanceof HTMLElement &&
     (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/i.test(el.tagName))
@@ -1335,9 +1351,6 @@ const particleSlider = document.getElementById("particleSlider");
 const particleCountOut = document.getElementById("particleCountOut");
 const fxSeg = document.getElementById("fxSeg");
 const shapeInput = document.getElementById("shapeInput");
-const colorInput = document.getElementById("colorInput");
-const colorSeg = document.getElementById("colorSeg");
-const colorHex = document.getElementById("colorHex");
 const layoutSeg = document.getElementById("layoutSeg");
 const formBtn = document.getElementById("formBtn");
 const meltBtn = document.getElementById("meltBtn");
@@ -1531,17 +1544,6 @@ function toggleShapeWord() {
   triggerShapeForm(0);
 }
 
-function applyParticleColor(hex) {
-  const normalized = (/^#?[0-9a-f]{6}$/i.test(hex || "") ? hex : "#9bffb3").toLowerCase();
-  const withHash = normalized.startsWith("#") ? normalized : `#${normalized}`;
-  state.color.hex = withHash;
-  state.color.rgb = hexToRgb01(withHash);
-  colorInput.value = withHash;
-  if (colorHex) colorHex.value = withHash.toUpperCase();
-  document.documentElement.style.setProperty("--accent", withHash);
-  if (colorSeg) setActiveButton(colorSeg, "color", withHash);
-}
-
 function syncShapeTextFromInput({
   refreshTarget = false,
   sustainIfShaped = false,
@@ -1575,10 +1577,6 @@ shapeInput.addEventListener("change", () => {
     triggerShapeMelt();
   }
   syncShapeTextFromInput();
-});
-
-colorInput.addEventListener("input", () => {
-  applyParticleColor(colorInput.value);
 });
 
 // Particle slider event - adjust particle amount
@@ -1866,10 +1864,10 @@ function frame(nowMs) {
   state.shape.mix += (state.shape.targetMix - state.shape.mix) * (1 - Math.exp(-dt * shapeRate));
   updateShapeActionButtons();
 
-  // Update color cycling - slow rotation through color combinations (only in auto mode)
-  // Full cycle takes about 12 seconds
+  // Update color cycling - fast rotation through color combinations (only in auto mode)
+  // Full cycle takes about 3 seconds for vibrant color shifting
   if (state.colorMode === "auto") {
-    const cycleSpeed = 0.08; 
+    const cycleSpeed = 0.35; 
     state.colorCycle.mix += dt * cycleSpeed;
     if (state.colorCycle.mix >= 1.0) {
       state.colorCycle.mix = 0;
@@ -1877,11 +1875,26 @@ function frame(nowMs) {
       state.colorCycle.nextIndex = (state.colorCycle.currentIndex + 1) % state.colorCycle.colors.length;
     }
   } else {
-    // Reset to static color mode
+    // In static color mode, smoothly interpolate to the selected color
     state.colorCycle.mix = 0;
-    state.colorCycle.currentIndex = state.colorCycle.colors.indexOf(state.colorPresets[state.colorMode]);
-    if (state.colorCycle.currentIndex === -1) state.colorCycle.currentIndex = 0;
-    state.colorCycle.nextIndex = state.colorCycle.currentIndex;
+    const staticColor = state.colorPresets[state.colorMode];
+    if (staticColor) {
+      // Find the index of the static color in the colors array
+      let colorIdx = -1;
+      for (let i = 0; i < state.colorCycle.colors.length; i++) {
+        const c = state.colorCycle.colors[i];
+        if (Math.abs(c[0] - staticColor[0]) < 0.01 && 
+            Math.abs(c[1] - staticColor[1]) < 0.01 && 
+            Math.abs(c[2] - staticColor[2]) < 0.01) {
+          colorIdx = i;
+          break;
+        }
+      }
+      if (colorIdx !== -1) {
+        state.colorCycle.currentIndex = colorIdx;
+        state.colorCycle.nextIndex = (colorIdx + 1) % state.colorCycle.colors.length;
+      }
+    }
   }
 
   // Update CSS accent color

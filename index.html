@@ -24,53 +24,61 @@
           </button>
         </div>
         <div class="panel-body" id="panelBody">
-          <div class="row">
-            <span class="label">Particles</span>
-            <input type="range" id="particleSlider" min="1" max="100" value="50" aria-label="Particle amount" />
-            <output id="particleCountOut" class="stat-pill" aria-live="polite">0 particles</output>
-          </div>
-          <div class="row">
-            <span class="label">FX</span>
-            <div class="seg" id="fxSeg" aria-label="Visual effects preset">
-              <button type="button" data-fx="neon" class="is-active">Neon</button>
-              <button type="button" data-fx="prism">Prism</button>
-              <button type="button" data-fx="plasma">Plasma</button>
+          <!-- Particles Section -->
+          <div class="section">
+            <div class="section-header">
+              <span class="label">Particles</span>
+            </div>
+            <div class="row">
+              <input type="range" id="particleSlider" min="1" max="100" value="50" aria-label="Particle amount" class="slider-full" />
+              <output id="particleCountOut" class="stat-pill" aria-live="polite">0 particles</output>
             </div>
           </div>
-          <div class="row row-shape">
-            <span class="label">Shape</span>
-            <div class="shape-controls">
-              <input id="shapeInput" type="text" value="TOUCH!" maxlength="18" aria-label="Shape text" />
-              <div class="seg" id="layoutSeg" aria-label="Text layout mode">
-                <button type="button" data-layout="single" class="is-active">Big</button>
-                <button type="button" data-layout="multi">Many</button>
+          
+          <!-- Effects Section -->
+          <div class="section">
+            <div class="section-header">
+              <span class="label">Effects</span>
+            </div>
+            <div class="row">
+              <div class="seg" id="fxSeg" aria-label="Visual effects preset">
+                <button type="button" data-fx="neon" class="is-active">Neon</button>
+                <button type="button" data-fx="prism">Prism</button>
+                <button type="button" data-fx="plasma">Plasma</button>
               </div>
+            </div>
+          </div>
+          
+          <!-- Text/Shape Section -->
+          <div class="section">
+            <div class="section-header">
+              <span class="label">Text</span>
+            </div>
+            <div class="row row-shape">
+              <div class="shape-controls">
+                <input id="shapeInput" type="text" value="TOUCH!" maxlength="18" aria-label="Shape text" />
+                <div class="seg" id="layoutSeg" aria-label="Text layout mode">
+                  <button type="button" data-layout="single" class="is-active">Big</button>
+                  <button type="button" data-layout="multi">Many</button>
+                </div>
+              </div>
+            </div>
+            <div class="row">
               <div class="seg shape-actions" id="shapeSeg">
                 <button type="button" id="formBtn">Form</button>
                 <button type="button" id="meltBtn">Melt</button>
               </div>
             </div>
           </div>
-          <div class="row">
-            <span class="label">Color</span>
-            <div class="seg" id="colorSeg" aria-label="Color mode">
-              <button type="button" data-color="auto" class="is-active">Auto</button>
-              <button type="button" data-color="mint">Mint</button>
-              <button type="button" data-color="ice">Ice</button>
-              <button type="button" data-color="gold">Gold</button>
-              <button type="button" data-color="rose">Rose</button>
-              <button type="button" data-color="purple">Purple</button>
-              <button type="button" data-color="orange">Orange</button>
-            </div>
-          </div>
+          
+          <!-- Help Section -->
           <div class="row help">
-            <span>Move: paint force</span>
-            <span>Hold click: attractor</span>
-            <span>Tap/click: toggle word</span>
-            <span>Wheel: attractor mass</span>
-            <span>Enter: form text</span>
-            <span>1/2/3 FX</span>
-            <span>M: melt • T: layout</span>
+            <span>Move: paint</span>
+            <span>Hold: attract</span>
+            <span>Tap: toggle</span>
+            <span>Enter: form</span>
+            <span>1/2/3: FX</span>
+            <span>M/T</span>
           </div>
         </div>
       </div>
