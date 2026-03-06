@@ -6,10 +6,10 @@ use js_sys::{Float32Array, Math};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    Document, Element, Event, EventTarget, HtmlCanvasElement, HtmlElement, HtmlInputElement,
-    KeyboardEvent, MouseEvent, PointerEvent, WebGl2RenderingContext as GL, WebGlBuffer,
-    WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture, WebGlUniformLocation,
-    WebGlVertexArrayObject, WheelEvent, Window,
+    CanvasRenderingContext2d, Document, Element, Event, EventTarget, HtmlCanvasElement,
+    HtmlElement, HtmlInputElement, KeyboardEvent, MouseEvent, PointerEvent,
+    WebGl2RenderingContext as GL, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader,
+    WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject, WheelEvent, Window,
 };
 
 thread_local! {
@@ -21,10 +21,10 @@ const TAP_TRIGGER_MAX_MOVE_PX: f32 = 16.0;
 const SHAPE_FORM_DURATION_S: f64 = 2.3;
 const DEFAULT_SHAPE_TEXT: &str = "TOUCH!";
 const PARTICLE_RESOLUTION_SCALE: f64 = 1.30;
-const COLOR_SHIFT_MIN_S: f64 = 2.6;
-const COLOR_SHIFT_MAX_S: f64 = 5.4;
-const COLOR_HOLD_MIN_S: f64 = 1.2;
-const COLOR_HOLD_MAX_S: f64 = 3.6;
+const COLOR_SHIFT_MIN_S: f64 = 2.3;
+const COLOR_SHIFT_MAX_S: f64 = 4.8;
+const COLOR_HOLD_MIN_S: f64 = 1.0;
+const COLOR_HOLD_MAX_S: f64 = 3.1;
 const PARTICLE_TEX_LADDER: &[i32] = &[
     128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 896, 1024, 1280, 1536, 1792,
     2048, 2304,
@@ -225,7 +225,9 @@ void main() {
     acc += bodyAxis * undulate * melt * 0.010;
 
   if (uAttractor.w > 0.5) {
-    applyMagnet(acc, p, uAttractor.xy, uAttractor.z, uAttractorSpin, 0.025);
+    float attractMass = uAttractor.z * 3.0;
+    float attractSpin = uAttractorSpin * 0.65;
+    applyMagnet(acc, p, uAttractor.xy, attractMass, attractSpin, 0.014);
   }
 
   if (uPointer.w > 0.5) {
@@ -254,15 +256,19 @@ void main() {
     float fall = exp(-dist2 * 4.0);
     acc += d * (uShape.x * uShape.y);
     acc += vec2(-d.y, d.x) * (uShape.x * uShape.z * (0.2 + 0.8 * fall));
-    float damp = 1.0 - clamp(0.035 * uShape.x * fall, 0.0, 0.08);
+    float damp = 1.0 - clamp(0.022 * uShape.x * fall, 0.0, 0.05);
     v *= damp;
   }
 
-  v += acc * dt;
-    float damping = pow(0.993, dt * 60.0);
+  float density = 1.18;
+  v += acc * (dt / density);
+    float damping = pow(0.9965, dt * 60.0);
   v *= damping;
   float speed = length(v);
-    float maxSpeed = 3.8 + uFx.y * 0.6;
+    float maxSpeed = 4.9 + uFx.y * 0.8;
+    if (uAttractor.w > 0.5) {
+      maxSpeed *= 1.7;
+    }
   if (speed > maxSpeed) {
     v *= maxSpeed / max(speed, 1e-6);
   }
@@ -271,10 +277,11 @@ void main() {
 
     float breathRadius = 0.03 * melt * (0.5 + 0.5 * sin(t * 0.52 + phase * 6.2831));
     vec2 bounds = vec2((1.12 + breathRadius) * aspect, 1.12 + breathRadius);
-    if (p.x > bounds.x) { p.x = bounds.x; v.x *= -0.78; }
-    else if (p.x < -bounds.x) { p.x = -bounds.x; v.x *= -0.78; }
-    if (p.y > bounds.y) { p.y = bounds.y; v.y *= -0.78; }
-    else if (p.y < -bounds.y) { p.y = -bounds.y; v.y *= -0.78; }
+    float restitution = 0.9;
+    if (p.x > bounds.x) { p.x = bounds.x; v.x *= -restitution; }
+    else if (p.x < -bounds.x) { p.x = -bounds.x; v.x *= -restitution; }
+    if (p.y > bounds.y) { p.y = bounds.y; v.y *= -restitution; }
+    else if (p.y < -bounds.y) { p.y = -bounds.y; v.y *= -restitution; }
 
   outState = vec4(p, v);
 }
@@ -575,7 +582,7 @@ impl App {
                     enabled: false,
                     x: 0.0,
                     y: 0.0,
-                    mass: 1.8,
+                    mass: 3.2,
                     spin: 0.45,
                 },
                 shape: ShapeState {
@@ -947,9 +954,19 @@ impl App {
             self.state.width as f32,
             self.state.height as f32,
         );
-        let point_scale =
-            (self.state.dpr as f32 * 2.5 * quality_preset(self.state.quality).point_scale_mul)
-                .clamp(1.35, 4.8);
+        let pointer_speed = (self.state.pointer.vx * self.state.pointer.vx
+            + self.state.pointer.vy * self.state.pointer.vy)
+            .sqrt()
+            .min(2.0);
+        let breathe = 1.0 + 0.08 * (self.state.time as f32 * 0.9).sin();
+        let motion_boost = 1.0 + pointer_speed * 0.035;
+        let point_scale = (self.state.dpr as f32
+            * 3.4
+            * quality_preset(self.state.quality).point_scale_mul
+            * breathe
+            * motion_boost)
+            .clamp(1.6, 7.0);
+        let alpha_gain = (fx.alpha_gain * (0.94 + 0.08 * breathe)).clamp(0.68, 0.98);
         self.gl.uniform1f(
             self.uniform(&self.programs.particle, "uPointScale")
                 .as_ref(),
@@ -976,7 +993,7 @@ impl App {
             fx.particle_spark,
             fx.ring_gain,
             fx.flare,
-            fx.alpha_gain,
+            alpha_gain,
         );
         self.gl.uniform1i(
             self.uniform(&self.programs.particle, "uFxMode").as_ref(),
@@ -1089,9 +1106,9 @@ impl App {
 
     fn step_random_color_shift(&mut self) {
         let now_s = self.state.time;
-        if self.state.color_shift_end_s <= self.state.color_shift_start_s {
-            self.schedule_random_palette_shift(now_s);
-        } else if now_s >= self.state.color_hold_until_s {
+        if self.state.color_shift_end_s <= self.state.color_shift_start_s
+            || now_s >= self.state.color_hold_until_s
+        {
             self.schedule_random_palette_shift(now_s);
         }
 
@@ -1130,10 +1147,10 @@ impl App {
         if let Some(out) = &self.ui.color_hex {
             out.set_text_content(Some(&normalized.to_ascii_uppercase()));
         }
-        if let Some(root) = self.document.document_element() {
-            if let Ok(root_el) = root.dyn_into::<HtmlElement>() {
-                let _ = root_el.style().set_property("--accent", &normalized);
-            }
+        if let Some(root) = self.document.document_element()
+            && let Ok(root_el) = root.dyn_into::<HtmlElement>()
+        {
+            let _ = root_el.style().set_property("--accent", &normalized);
         }
 
         self.schedule_random_palette_shift(self.state.time);
@@ -1226,7 +1243,7 @@ impl App {
             Some(ps) => ps.count,
             None => return Ok(()),
         };
-        let targets = build_shape_targets(&text, layout, count);
+        let targets = build_shape_targets(&self.document, &text, layout, count);
 
         let gl = self.gl.clone();
         if let Some(ps) = self.particles.as_mut() {
@@ -1857,7 +1874,7 @@ fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
             e.prevent_default();
             let mut app = app2.borrow_mut();
             let factor = (-e.delta_y() as f32 * 0.0012).exp();
-            app.state.attractor.mass = clamp_f32(app.state.attractor.mass * factor, 0.08, 2.2);
+            app.state.attractor.mass = clamp_f32(app.state.attractor.mass * factor, 0.08, 8.0);
         }));
         canvas.add_event_listener_with_callback("wheel", cb.as_ref().unchecked_ref())?;
         cb.forget();
@@ -1929,10 +1946,10 @@ fn start_animation_loop(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
                 log_error(err);
                 return;
             }
-            if let Some(win) = web_sys::window() {
-                if let Some(cb) = raf_cell_for_cb.borrow().as_ref() {
-                    let _ = win.request_animation_frame(cb.as_ref().unchecked_ref());
-                }
+            if let Some(win) = web_sys::window()
+                && let Some(cb) = raf_cell_for_cb.borrow().as_ref()
+            {
+                let _ = win.request_animation_frame(cb.as_ref().unchecked_ref());
             }
         },
     )));
@@ -2007,16 +2024,17 @@ fn normalize_shape_text(input: &str, fallback_on_empty: bool) -> String {
     }
 }
 
-fn build_shape_targets(text: &str, layout: ShapeLayout, count: usize) -> Vec<f32> {
+fn build_shape_targets(document: &Document, text: &str, layout: ShapeLayout, count: usize) -> Vec<f32> {
     let mut samples = Vec::<(f32, f32)>::new();
     let cleaned = normalize_shape_text(text, true);
+    let glyph_points =
+        raster_text_points(document, &cleaned).unwrap_or_else(|_| raster_text_cells(&cleaned));
 
     match layout {
         ShapeLayout::Single => {
-            push_text_stamp(&mut samples, &cleaned, 0.0, 0.02, 1.38, 0.88, 8);
+            push_text_stamp(&mut samples, &glyph_points, 0.0, 0.02, 1.38, 0.88, 2);
         }
         ShapeLayout::Multi => {
-            let stamp = cleaned;
             let placements: &[(f32, f32, f32, f32)] = &[
                 (-0.62, 0.34, 0.92, 0.42),
                 (0.57, 0.31, 0.78, 0.38),
@@ -2025,8 +2043,8 @@ fn build_shape_targets(text: &str, layout: ShapeLayout, count: usize) -> Vec<f32
                 (-0.66, -0.42, 0.72, 0.34),
             ];
             for (idx, &(cx, cy, w, h)) in placements.iter().enumerate() {
-                let copies = if idx == 2 { 6 } else { 4 };
-                push_text_stamp(&mut samples, &stamp, cx, cy, w, h, copies);
+                let copies = if idx == 2 { 2 } else { 1 };
+                push_text_stamp(&mut samples, &glyph_points, cx, cy, w, h, copies);
             }
         }
     }
@@ -2040,8 +2058,8 @@ fn build_shape_targets(text: &str, layout: ShapeLayout, count: usize) -> Vec<f32
         let idx = (i * 131 + (i / 7) * 17) % samples.len();
         let (sx, sy) = samples[idx];
         let jx =
-            (hash01_u32((i as u32).wrapping_mul(1664525).wrapping_add(1013904223)) - 0.5) * 0.0025;
-        let jy = (hash01_u32((i as u32).wrapping_mul(22695477).wrapping_add(1)) - 0.5) * 0.0025;
+            (hash01_u32((i as u32).wrapping_mul(1664525).wrapping_add(1013904223)) - 0.5) * 0.004;
+        let jy = (hash01_u32((i as u32).wrapping_mul(22695477).wrapping_add(1)) - 0.5) * 0.004;
         out[i * 2] = sx + jx;
         out[i * 2 + 1] = sy + jy;
     }
@@ -2050,15 +2068,14 @@ fn build_shape_targets(text: &str, layout: ShapeLayout, count: usize) -> Vec<f32
 
 fn push_text_stamp(
     out: &mut Vec<(f32, f32)>,
-    text: &str,
+    points: &[(f32, f32)],
     center_x: f32,
     center_y: f32,
     width: f32,
     height: f32,
     density: usize,
 ) {
-    let cells = raster_text_cells(text);
-    if cells.is_empty() {
+    if points.is_empty() {
         return;
     }
 
@@ -2066,7 +2083,7 @@ fn push_text_stamp(
     let mut max_x = f32::NEG_INFINITY;
     let mut min_y = f32::INFINITY;
     let mut max_y = f32::NEG_INFINITY;
-    for &(x, y) in &cells {
+    for &(x, y) in points {
         min_x = min_x.min(x);
         max_x = max_x.max(x);
         min_y = min_y.min(y);
@@ -2081,26 +2098,74 @@ fn push_text_stamp(
     let sy = height / span_y;
 
     let density = density.max(1);
-    let side = (density as f32).sqrt().ceil() as i32;
-    for &(x, y) in &cells {
+    for &(x, y) in points {
         let base_x = center_x + (x - cx) * sx;
         let base_y = center_y - (y - cy) * sy;
+        let cell_seed = (x as u32).wrapping_mul(0x9e37_79b9) ^ (y as u32).wrapping_mul(0x85eb_ca6b);
         for k in 0..density {
-            let gx = (k as i32 % side) as f32;
-            let gy = (k as i32 / side) as f32;
-            let fx = if side > 1 {
-                gx / (side - 1) as f32 - 0.5
-            } else {
-                0.0
-            };
-            let fy = if side > 1 {
-                gy / (side - 1) as f32 - 0.5
-            } else {
-                0.0
-            };
-            out.push((base_x + fx * sx * 0.7, base_y + fy * sy * 0.7));
+            let sample_seed = cell_seed ^ (k as u32).wrapping_mul(0x27d4_eb2d);
+            let jitter_x = (hash01_u32(sample_seed ^ 0x1b56_c4e9) - 0.5) * sx * 0.22;
+            let jitter_y = (hash01_u32(sample_seed ^ 0xc2b2_ae35) - 0.5) * sy * 0.22;
+            let ox = jitter_x;
+            let oy = jitter_y;
+            out.push((base_x + ox, base_y + oy));
         }
     }
+}
+
+fn raster_text_points(document: &Document, text: &str) -> Result<Vec<(f32, f32)>, JsValue> {
+    const CANVAS_W: u32 = 1200;
+    const CANVAS_H: u32 = 360;
+    const SAMPLE_STEP: usize = 2;
+    const ALPHA_THRESHOLD: u8 = 20;
+
+    let canvas = document
+        .create_element("canvas")?
+        .dyn_into::<HtmlCanvasElement>()?;
+    canvas.set_width(CANVAS_W);
+    canvas.set_height(CANVAS_H);
+
+    let Some(ctx_any) = canvas.get_context("2d")? else {
+        return Err(js_err("2d canvas context unavailable"));
+    };
+    let ctx = ctx_any.dyn_into::<CanvasRenderingContext2d>()?;
+
+    let w = CANVAS_W as f64;
+    let h = CANVAS_H as f64;
+    ctx.clear_rect(0.0, 0.0, w, h);
+    ctx.set_text_align("center");
+    ctx.set_text_baseline("middle");
+    ctx.set_fill_style_str("#ffffff");
+
+    let chars = text.chars().count().max(1) as f64;
+    let font_by_height = h * 0.72;
+    let font_by_width = (w * 0.90) / (chars * 0.58);
+    let font_px = font_by_height.min(font_by_width).max(40.0);
+    ctx.set_font(&format!(
+        "900 {:.0}px \"Trebuchet MS\", \"Arial Black\", sans-serif",
+        font_px
+    ));
+    ctx.fill_text(text, w * 0.5, h * 0.53)?;
+
+    let rgba = ctx.get_image_data(0.0, 0.0, w, h)?.data().0.to_vec();
+
+    let mut points = Vec::new();
+    let width_px = CANVAS_W as usize;
+    let height_px = CANVAS_H as usize;
+    for y in (0..height_px).step_by(SAMPLE_STEP) {
+        let row_base = y * width_px * 4;
+        for x in (0..width_px).step_by(SAMPLE_STEP) {
+            let a = rgba[row_base + x * 4 + 3];
+            if a >= ALPHA_THRESHOLD {
+                points.push((x as f32, y as f32));
+            }
+        }
+    }
+
+    if points.is_empty() {
+        return Err(js_err("rasterized text produced no points"));
+    }
+    Ok(points)
 }
 
 fn raster_text_cells(text: &str) -> Vec<(f32, f32)> {
