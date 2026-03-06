@@ -4,11 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RustyParts</title>
-    <link rel="stylesheet" href="/styles-6f4f25eb5d548bb0.css" integrity="sha384-qB5k/2rBOnavaKjkmJI4kCBmWieXTdIrPpqJh800dqGTV9Ja4WITW2RYt9VdjXoy"/>
+    <link rel="stylesheet" href="/styles-335e9087d9abe8c2.css" integrity="sha384-BDp4QoZ0M8rJkxy7tuDAGIKXq4x5JFpKfMUMbVXWWNvtrfMOATF3X7FmU7WVEZ0+"/>
     
 <script type="module">
-import init, * as bindings from '/rustyparts-27c2bf41bc0ed9e0.js';
-const wasm = await init({ module_or_path: '/rustyparts-27c2bf41bc0ed9e0_bg.wasm' });
+import init, * as bindings from '/rustyparts-e57708a98781cf25.js';
+const wasm = await init({ module_or_path: '/rustyparts-e57708a98781cf25_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -17,7 +17,7 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-  <link rel="modulepreload" href="/rustyparts-27c2bf41bc0ed9e0.js" crossorigin="anonymous" integrity="sha384-u733anqGaee6xXxXEGw6Ra4zPVgHkziE4P3D2iuPWSTLHVgBmTUEuyUFbshrCRdA"><link rel="preload" href="/rustyparts-27c2bf41bc0ed9e0_bg.wasm" crossorigin="anonymous" integrity="sha384-q54WJ5WtkGBbJtL/FPFUl2cAYz5RvSsOQY7pBzXT2nmPiLwqMwixT33CNpnLuEjw" as="fetch" type="application/wasm"></head>
+  <link rel="modulepreload" href="/rustyparts-e57708a98781cf25.js" crossorigin="anonymous" integrity="sha384-0jvR7Yggl0zx3Wdn0BeNIEcE5ek4mAntqCF4CGUUQKBDHPm/3LfR076RxzxgPyDX"><link rel="preload" href="/rustyparts-e57708a98781cf25_bg.wasm" crossorigin="anonymous" integrity="sha384-ewIu9YsX8GMBhvsltPeXG7M4EMTyyasEM7t13juAQkGTtYwINvxfeXGocQ9ZhEk3" as="fetch" type="application/wasm"></head>
   <body>
     <canvas id="app" aria-label="Interactive particle field"></canvas>
     <div class="hud">
@@ -67,7 +67,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
             </div>
             <div class="row row-shape">
               <div class="shape-controls">
-                <input id="shapeInput" type="text" value="TOUCH!" maxlength="18" aria-label="Shape text" />
+                <span class="shape-hint">Text entry moved to the bottom dot</span>
                 <div class="seg" id="layoutSeg" aria-label="Text layout mode">
                   <button type="button" data-layout="single" class="is-active">Big</button>
                   <button type="button" data-layout="multi">Many</button>
@@ -91,6 +91,39 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
             <span>1/2/3: FX</span>
             <span>M/T</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-entry-launcher">
+      <button
+        type="button"
+        id="textEntryDot"
+        class="entry-dot"
+        aria-controls="textEntrySheet"
+        aria-expanded="false"
+        aria-label="Open text entry"
+      ></button>
+    </div>
+
+    <div class="text-entry-sheet" id="textEntrySheet" aria-hidden="true">
+      <div class="text-entry-card">
+        <div class="text-entry-head">
+          <span class="text-entry-title">Type Your Text</span>
+          <button type="button" id="textEntryClose" class="text-entry-close">Close</button>
+        </div>
+        <input
+          id="shapeInput"
+          type="text"
+          value=""
+          maxlength="18"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Shape text"
+          placeholder="Enter custom text"
+        />
+        <div class="text-entry-actions">
+          <button type="button" id="textEntryApply">Form</button>
         </div>
       </div>
     </div>

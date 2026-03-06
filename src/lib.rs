@@ -21,10 +21,15 @@ const TAP_TRIGGER_MAX_MOVE_PX: f32 = 16.0;
 const SHAPE_FORM_DURATION_S: f64 = 2.3;
 const DEFAULT_SHAPE_TEXT: &str = "TOUCH!";
 const PARTICLE_RESOLUTION_SCALE: f64 = 1.30;
-const COLOR_SHIFT_MIN_S: f64 = 2.3;
-const COLOR_SHIFT_MAX_S: f64 = 4.8;
-const COLOR_HOLD_MIN_S: f64 = 1.0;
-const COLOR_HOLD_MAX_S: f64 = 3.1;
+const COLOR_SHIFT_MIN_S: f64 = 1.4;
+const COLOR_SHIFT_MAX_S: f64 = 3.0;
+const COLOR_HOLD_MIN_S: f64 = 0.4;
+const COLOR_HOLD_MAX_S: f64 = 1.2;
+const TOUCH_ATTRACT_RAMP_S: f64 = 1.35;
+const TOUCH_ATTRACT_MAX_GAIN: f32 = 3.4;
+const TOUCH_ATTRACT_WAVE_A_HZ: f32 = 1.7;
+const TOUCH_ATTRACT_WAVE_B_HZ: f32 = 4.2;
+const TOUCH_ATTRACT_WAVE_BLEND: f32 = 0.36;
 const PARTICLE_TEX_LADDER: &[i32] = &[
     128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 896, 1024, 1280, 1536, 1792,
     2048, 2304,
@@ -93,7 +98,6 @@ void main() {
 }
 "#;
 
-
 const PARTICLE_FS: &str = r#"#version 300 es
 precision highp float;
 in vec2 vMeta;
@@ -114,11 +118,16 @@ void main() {
   float seed = vMeta.x;
   float speed = vMeta.y;
   
-  // Two-tone palette with subtle per-particle drift.
-  float wave = 0.5 + 0.5 * sin(uTime * 0.42 + seed * 12.0);
-  float toneMix = clamp(mix(seed, wave, 0.24) + speed * 0.05, 0.0, 1.0);
-  vec3 col = mix(uTintA, uTintB, toneMix);
-  col *= (0.76 + core * 0.34);
+  // Stronger two-tone split with a little movement over time.
+  float wave = 0.5 + 0.5 * sin(uTime * 0.58 + seed * 15.0 + speed * 1.4);
+  float toneMix = clamp(mix(seed, wave, 0.62) + (speed - 0.2) * 0.14, 0.0, 1.0);
+  float softSplit = smoothstep(0.28, 0.72, toneMix);
+  float hardSplit = step(0.5, toneMix);
+  vec3 col = mix(uTintA, uTintB, softSplit);
+  col = mix(col, mix(uTintA, uTintB, hardSplit), 0.48);
+  float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col = clamp(mix(vec3(luma), col, 1.26), 0.0, 1.0);
+  col *= (0.8 + core * 0.4);
 
   // Solid matte appearance - no additive glow
   float outAlpha = core * 0.85;
@@ -254,10 +263,21 @@ void main() {
     vec2 d = target - p;
     float dist2 = dot(d, d);
     float fall = exp(-dist2 * 4.0);
-    acc += d * (uShape.x * uShape.y);
-    acc += vec2(-d.y, d.x) * (uShape.x * uShape.z * (0.2 + 0.8 * fall));
-    float damp = 1.0 - clamp(0.022 * uShape.x * fall, 0.0, 0.05);
-    v *= damp;
+    float near = exp(-dist2 * 12.0);
+    float settle = smoothstep(0.62, 0.98, uShape.x);
+    float pullGain = 1.0 + settle * near * 1.7;
+    acc += d * (uShape.x * uShape.y * pullGain);
+
+    float orbitFade = 1.0 - clamp(settle * near * 0.9, 0.0, 0.9);
+    acc += vec2(-d.y, d.x) * (uShape.x * uShape.z * (0.2 + 0.8 * fall) * orbitFade);
+
+    float velDamp = clamp((0.020 + 0.060 * near) * uShape.x * (0.4 + 0.6 * settle), 0.0, 0.16);
+    v *= (1.0 - velDamp);
+
+    vec2 dirToTarget = d / max(sqrt(dist2), 1e-4);
+    float radialVel = dot(v, dirToTarget);
+    float outwardVel = max(-radialVel, 0.0);
+    v += dirToTarget * outwardVel * clamp(near * (0.24 + 0.52 * settle), 0.0, 0.76);
   }
 
   float density = 1.18;
@@ -269,6 +289,10 @@ void main() {
     if (uAttractor.w > 0.5) {
       maxSpeed *= 1.7;
     }
+    if (uShape.w > 0.5) {
+      float settleCap = smoothstep(0.62, 0.98, clamp(uShape.x, 0.0, 1.0));
+      maxSpeed *= mix(1.0, 0.82, settleCap);
+    }
   if (speed > maxSpeed) {
     v *= maxSpeed / max(speed, 1e-6);
   }
@@ -277,7 +301,11 @@ void main() {
 
     float breathRadius = 0.03 * melt * (0.5 + 0.5 * sin(t * 0.52 + phase * 6.2831));
     vec2 bounds = vec2((1.12 + breathRadius) * aspect, 1.12 + breathRadius);
-    float restitution = 0.9;
+    float settleBounce = smoothstep(0.62, 0.98, clamp(uShape.x, 0.0, 1.0));
+    float restitution = mix(0.9, 0.78, settleBounce);
+    if (uAttractor.w > 0.5) {
+      restitution *= 0.92;
+    }
     if (p.x > bounds.x) { p.x = bounds.x; v.x *= -restitution; }
     else if (p.x < -bounds.x) { p.x = -bounds.x; v.x *= -restitution; }
     if (p.y > bounds.y) { p.y = bounds.y; v.y *= -restitution; }
@@ -357,6 +385,8 @@ struct AttractorState {
     y: f32,
     mass: f32,
     spin: f32,
+    touch_hold_active: bool,
+    touch_hold_start_s: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -393,6 +423,7 @@ struct AppState {
     height: i32,
     brush: BrushMode,
     quality: QualityMode,
+    particle_amount: i32,
     fx: FxMode,
     color_hex: String,
     color_rgb: [f32; 3],
@@ -418,6 +449,7 @@ struct UiRefs {
     color_seg: Option<Element>,
     color_input: Option<HtmlInputElement>,
     color_hex: Option<HtmlElement>,
+    particle_slider: Option<HtmlInputElement>,
     particle_count_out: Option<HtmlElement>,
     shape_input: Option<HtmlInputElement>,
     layout_seg: Option<Element>,
@@ -425,6 +457,8 @@ struct UiRefs {
     melt_btn: Option<HtmlElement>,
     control_panel: Option<Element>,
     panel_toggle: Option<HtmlElement>,
+    text_entry_dot: Option<HtmlElement>,
+    text_entry_sheet: Option<HtmlElement>,
 }
 
 struct Programs {
@@ -540,6 +574,12 @@ impl App {
 
         let programs = Programs::new(&gl)?;
         let ui = UiRefs::from_document(&document)?;
+        let particle_amount = ui
+            .particle_slider
+            .as_ref()
+            .and_then(|input| input.value().parse::<i32>().ok())
+            .unwrap_or(50)
+            .clamp(1, 100);
 
         let mut app = Self {
             window,
@@ -562,6 +602,7 @@ impl App {
                 height: 1,
                 brush: BrushMode::Push,
                 quality: QualityMode::Insane,
+                particle_amount,
                 fx: FxMode::Neon,
                 color_hex: "#9bffb3".to_string(),
                 color_rgb: hex_to_rgb01("#9bffb3"),
@@ -584,6 +625,8 @@ impl App {
                     y: 0.0,
                     mass: 3.2,
                     spin: 0.45,
+                    touch_hold_active: false,
+                    touch_hold_start_s: 0.0,
                 },
                 shape: ShapeState {
                     text: DEFAULT_SHAPE_TEXT.to_string(),
@@ -689,7 +732,10 @@ impl App {
         // Match the old JS selector more closely: CSS area * dpr (Rust canvas uses CSS area * dpr^2).
         let area = (self.state.width.max(1) as f64 * self.state.height.max(1) as f64)
             / self.state.dpr.max(1.0);
-        let mut target = if area < 320_000.0 {
+        let slider_fraction = (self.state.particle_amount as f64 / 100.0).clamp(0.0, 1.0);
+        let slider_target =
+            (128.0 + (960.0 - 128.0) * slider_fraction * slider_fraction).round() as i32;
+        let area_target = if area < 320_000.0 {
             160
         } else if area < 650_000.0 {
             224
@@ -710,6 +756,7 @@ impl App {
         } else {
             896
         };
+        let mut target = slider_target.max(area_target);
 
         target = ((target as f64) * PARTICLE_RESOLUTION_SCALE).round() as i32;
 
@@ -779,6 +826,25 @@ impl App {
         Ok(())
     }
 
+    fn touch_hold_attractor_gain(&self) -> f32 {
+        if !(self.state.attractor.enabled && self.state.attractor.touch_hold_active) {
+            return 1.0;
+        }
+
+        let hold_s = (self.state.time - self.state.attractor.touch_hold_start_s).max(0.0) as f32;
+        let ramp = (hold_s / TOUCH_ATTRACT_RAMP_S as f32).clamp(0.0, 1.0);
+        let ramp_gain = 1.0 + (TOUCH_ATTRACT_MAX_GAIN - 1.0) * ramp;
+        if ramp < 1.0 {
+            return ramp_gain;
+        }
+
+        let wave_t = hold_s - TOUCH_ATTRACT_RAMP_S as f32;
+        let wave = (wave_t * TAU * TOUCH_ATTRACT_WAVE_A_HZ).sin() * 0.23
+            + (wave_t * TAU * TOUCH_ATTRACT_WAVE_B_HZ).sin() * 0.13;
+        let gain = TOUCH_ATTRACT_MAX_GAIN * (1.0 + wave * TOUCH_ATTRACT_WAVE_BLEND);
+        gain.clamp(TOUCH_ATTRACT_MAX_GAIN * 0.72, TOUCH_ATTRACT_MAX_GAIN * 1.24)
+    }
+
     fn step_particles(&mut self, dt: f32) {
         let Some(ps) = self.particles.as_ref() else {
             return;
@@ -788,6 +854,9 @@ impl App {
         let pointer_recent = self.state.pointer.active
             && (self.state.time - self.state.pointer.last_seen_ms * 0.001) < 0.15;
         let shape_mix = self.state.shape.mix.clamp(0.0, 1.0);
+        let attract_gain = self.touch_hold_attractor_gain();
+        let attract_mass = (self.state.attractor.mass * attract_gain).clamp(0.08, 20.0);
+        let attract_spin = self.state.attractor.spin * (1.0 + (attract_gain - 1.0) * 0.12);
         let read_index = ps.read_index;
         let write_index = 1 - read_index;
         let read_tex = ps.buffers[read_index].tex.clone();
@@ -853,7 +922,7 @@ impl App {
             self.uniform(&self.programs.sim, "uAttractor").as_ref(),
             self.state.attractor.x,
             self.state.attractor.y,
-            self.state.attractor.mass,
+            attract_mass,
             if self.state.attractor.enabled {
                 1.0
             } else {
@@ -862,7 +931,7 @@ impl App {
         );
         self.gl.uniform1f(
             self.uniform(&self.programs.sim, "uAttractorSpin").as_ref(),
-            self.state.attractor.spin,
+            attract_spin,
         );
         self.gl.uniform2f(
             self.uniform(&self.programs.sim, "uViewport").as_ref(),
@@ -1053,12 +1122,23 @@ impl App {
         self.state.mouse_tap.active = false;
     }
 
-    fn on_pointer_down(&mut self, client_x: f64, client_y: f64, now_ms: f64) {
+    fn clear_touch_hold(&mut self) {
+        self.state.attractor.touch_hold_active = false;
+        self.state.attractor.touch_hold_start_s = 0.0;
+    }
+
+    fn on_pointer_down(&mut self, client_x: f64, client_y: f64, now_ms: f64, is_touch: bool) {
         self.on_pointer_move(client_x, client_y, now_ms);
         self.state.pointer.down = true;
         self.state.attractor.enabled = true;
         self.state.attractor.x = self.state.pointer.nx;
         self.state.attractor.y = self.state.pointer.ny;
+        if is_touch {
+            self.state.attractor.touch_hold_active = true;
+            self.state.attractor.touch_hold_start_s = now_ms * 0.001;
+        } else {
+            self.clear_touch_hold();
+        }
         self.state.mouse_tap.active = true;
         self.state.mouse_tap.x = client_x as f32;
         self.state.mouse_tap.y = client_y as f32;
@@ -1069,12 +1149,20 @@ impl App {
     fn on_pointer_up(&mut self, now_ms: f64) -> Result<(), JsValue> {
         self.state.pointer.down = false;
         self.state.attractor.enabled = false;
+        self.clear_touch_hold();
         let dt = now_ms - self.state.mouse_tap.t_ms;
         if self.state.mouse_tap.active && !self.state.mouse_tap.moved && dt <= TAP_TRIGGER_MAX_MS {
             self.toggle_shape_word()?;
         }
         self.state.mouse_tap.active = false;
         Ok(())
+    }
+
+    fn on_pointer_cancel(&mut self) {
+        self.state.pointer.down = false;
+        self.state.attractor.enabled = false;
+        self.state.mouse_tap.active = false;
+        self.clear_touch_hold();
     }
 
     fn norm_from_client(&self, client_x: f64, client_y: f64) -> (f32, f32, f32, f32) {
@@ -1096,7 +1184,8 @@ impl App {
         self.state.color_target_rgb = to_a;
         self.state.color_alt_target_rgb = to_b;
 
-        let duration = COLOR_SHIFT_MIN_S + (COLOR_SHIFT_MAX_S - COLOR_SHIFT_MIN_S) * self.rng.f32() as f64;
+        let duration =
+            COLOR_SHIFT_MIN_S + (COLOR_SHIFT_MAX_S - COLOR_SHIFT_MIN_S) * self.rng.f32() as f64;
         let hold = COLOR_HOLD_MIN_S + (COLOR_HOLD_MAX_S - COLOR_HOLD_MIN_S) * self.rng.f32() as f64;
 
         self.state.color_shift_start_s = now_s;
@@ -1115,9 +1204,30 @@ impl App {
         let span = (self.state.color_shift_end_s - self.state.color_shift_start_s).max(1e-6);
         let t = ((now_s - self.state.color_shift_start_s) / span).clamp(0.0, 1.0) as f32;
         let eased = t * t * (3.0 - 2.0 * t);
-        self.state.color_rgb = lerp_rgb(self.state.color_from_rgb, self.state.color_target_rgb, eased);
-        self.state.color_alt_rgb =
-            lerp_rgb(self.state.color_alt_from_rgb, self.state.color_alt_target_rgb, eased);
+        self.state.color_rgb = lerp_rgb(
+            self.state.color_from_rgb,
+            self.state.color_target_rgb,
+            eased,
+        );
+        self.state.color_alt_rgb = lerp_rgb(
+            self.state.color_alt_from_rgb,
+            self.state.color_alt_target_rgb,
+            eased,
+        );
+        self.update_css_palette_vars();
+    }
+
+    fn update_css_palette_vars(&self) {
+        let Some(root) = self.document.document_element() else {
+            return;
+        };
+        let Ok(root_el) = root.dyn_into::<HtmlElement>() else {
+            return;
+        };
+        let base_hex = rgb01_to_hex(self.state.color_rgb);
+        let alt_hex = rgb01_to_hex(self.state.color_alt_rgb);
+        let _ = root_el.style().set_property("--accent", &base_hex);
+        let _ = root_el.style().set_property("--accent-alt", &alt_hex);
     }
 
     fn apply_particle_color(&mut self, hex: &str) -> Result<(), JsValue> {
@@ -1125,9 +1235,13 @@ impl App {
         let base = hex_to_rgb01(&normalized);
         let (h, s, v) = rgb_to_hsv(base);
         let sign = if self.rng.f32() > 0.5 { 1.0 } else { -1.0 };
-        let partner_h = wrap01(h + sign * (0.22 + 0.15 * self.rng.f32()));
-        let partner_s = clamp_f32((s * 0.82) + 0.16, 0.38, 0.96);
-        let partner_v = clamp_f32((v * 0.88) + 0.08, 0.44, 0.98);
+        let partner_h = wrap01(h + sign * (0.34 + 0.18 * self.rng.f32()));
+        let partner_s = clamp_f32(0.74 + s * 0.32, 0.68, 1.0);
+        let partner_v = if v > 0.62 {
+            clamp_f32(v * 0.54, 0.34, 0.72)
+        } else {
+            clamp_f32(v * 1.26 + 0.18, 0.72, 1.0)
+        };
         let partner = hsv_to_rgb(partner_h, partner_s, partner_v);
 
         self.state.color_rgb = base;
@@ -1147,21 +1261,54 @@ impl App {
         if let Some(out) = &self.ui.color_hex {
             out.set_text_content(Some(&normalized.to_ascii_uppercase()));
         }
-        if let Some(root) = self.document.document_element()
-            && let Ok(root_el) = root.dyn_into::<HtmlElement>()
-        {
-            let _ = root_el.style().set_property("--accent", &normalized);
-        }
+        self.update_css_palette_vars();
 
         self.schedule_random_palette_shift(self.state.time);
         set_active_button(&self.ui.color_seg, "color", &normalized)?;
         Ok(())
     }
 
+    fn set_text_entry_open(&mut self, open: bool, clear_input: bool) -> Result<(), JsValue> {
+        if let Some(sheet) = &self.ui.text_entry_sheet {
+            sheet.class_list().toggle_with_force("is-open", open)?;
+            sheet.set_attribute("aria-hidden", if open { "false" } else { "true" })?;
+        }
+        if let Some(dot) = &self.ui.text_entry_dot {
+            dot.set_attribute("aria-expanded", if open { "true" } else { "false" })?;
+        }
+        if open
+            && clear_input
+            && let Some(input) = &self.ui.shape_input
+        {
+            input.set_value("");
+        }
+        if open && let Some(input) = &self.ui.shape_input {
+            let _ = input.focus();
+        }
+        Ok(())
+    }
+
+    fn submit_text_entry(&mut self) -> Result<(), JsValue> {
+        let typed = self
+            .ui
+            .shape_input
+            .as_ref()
+            .map(|input| normalize_shape_text(&input.value(), false))
+            .unwrap_or_default();
+        if typed.is_empty() {
+            return self.set_text_entry_open(false, false);
+        }
+        if let Some(input) = &self.ui.shape_input {
+            input.set_value(&typed);
+        }
+        self.trigger_shape_form(None)?;
+        self.set_text_entry_open(false, false)
+    }
+
     fn set_layout(&mut self, layout: ShapeLayout) -> Result<(), JsValue> {
         self.state.shape.layout = layout;
+        self.state.shape.text = normalize_shape_text(&self.state.shape.text, true);
         if let Some(input) = &self.ui.shape_input {
-            self.state.shape.text = normalize_shape_text(&input.value(), true);
             input.set_value(&self.state.shape.text);
         }
         self.rebuild_shape_targets()?;
@@ -1174,7 +1321,12 @@ impl App {
 
     fn trigger_shape_form(&mut self, hold_duration_s: Option<f64>) -> Result<(), JsValue> {
         if let Some(input) = &self.ui.shape_input {
-            self.state.shape.text = normalize_shape_text(&input.value(), true);
+            let typed = normalize_shape_text(&input.value(), false);
+            if !typed.is_empty() {
+                self.state.shape.text = typed;
+            } else {
+                self.state.shape.text = normalize_shape_text(&self.state.shape.text, true);
+            }
             input.set_value(&self.state.shape.text);
         } else {
             self.state.shape.text = normalize_shape_text(&self.state.shape.text, true);
@@ -1202,18 +1354,6 @@ impl App {
         } else {
             self.trigger_shape_form(Some(0.0))
         }
-    }
-
-    fn sync_shape_text_from_input(&mut self, fallback_on_empty: bool) -> Result<(), JsValue> {
-        let Some(input) = self.ui.shape_input.clone() else {
-            return Ok(());
-        };
-        self.state.shape.text = normalize_shape_text(&input.value(), fallback_on_empty);
-        if fallback_on_empty || !self.state.shape.text.is_empty() {
-            input.set_value(&self.state.shape.text);
-        }
-        self.rebuild_shape_targets()?;
-        self.update_shape_action_buttons()
     }
 
     fn update_shape_action_buttons(&self) -> Result<(), JsValue> {
@@ -1264,6 +1404,16 @@ impl App {
         self.update_particle_count_ui(false)
     }
 
+    fn set_particle_amount(&mut self, amount: i32) -> Result<(), JsValue> {
+        let clamped = amount.clamp(1, 100);
+        self.state.particle_amount = clamped;
+        if let Some(slider) = &self.ui.particle_slider {
+            slider.set_value(&clamped.to_string());
+        }
+        self.ensure_particle_system()?;
+        self.update_particle_count_ui(false)
+    }
+
     fn set_fx(&mut self, fx: FxMode) -> Result<(), JsValue> {
         self.state.fx = fx;
         set_active_button(&self.ui.fx_seg, "fx", fx.as_str())
@@ -1278,10 +1428,14 @@ impl App {
             "layout",
             self.state.shape.layout.as_str(),
         )?;
+        if let Some(slider) = &self.ui.particle_slider {
+            slider.set_value(&self.state.particle_amount.to_string());
+        }
         if let Some(input) = &self.ui.shape_input {
             input.set_value(&self.state.shape.text);
         }
         self.apply_particle_color(&self.state.color_hex.clone())?;
+        self.set_text_entry_open(false, false)?;
         self.update_particle_count_ui(include_fps)?;
         self.update_shape_action_buttons()?;
         Ok(())
@@ -1384,6 +1538,9 @@ impl UiRefs {
             color_hex: document
                 .get_element_by_id("colorHex")
                 .and_then(|e| e.dyn_into::<HtmlElement>().ok()),
+            particle_slider: document
+                .get_element_by_id("particleSlider")
+                .and_then(|e| e.dyn_into::<HtmlInputElement>().ok()),
             particle_count_out: document
                 .get_element_by_id("particleCountOut")
                 .and_then(|e| e.dyn_into::<HtmlElement>().ok()),
@@ -1400,6 +1557,12 @@ impl UiRefs {
             control_panel: document.get_element_by_id("controlPanel"),
             panel_toggle: document
                 .get_element_by_id("panelToggle")
+                .and_then(|e| e.dyn_into::<HtmlElement>().ok()),
+            text_entry_dot: document
+                .get_element_by_id("textEntryDot")
+                .and_then(|e| e.dyn_into::<HtmlElement>().ok()),
+            text_entry_sheet: document
+                .get_element_by_id("textEntrySheet")
                 .and_then(|e| e.dyn_into::<HtmlElement>().ok()),
         })
     }
@@ -1662,7 +1825,6 @@ fn fx_preset(mode: FxMode) -> FxPreset {
     }
 }
 
-
 fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
     let window = app.borrow().window.clone();
     let document = app.borrow().document.clone();
@@ -1735,34 +1897,78 @@ fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
         .and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
     {
         let app2 = app.clone();
+        let cb = Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |e: KeyboardEvent| {
+            if e.key() == "Enter" {
+                e.prevent_default();
+                if let Err(err) = app2.borrow_mut().submit_text_entry() {
+                    log_error(err);
+                }
+            } else if e.key() == "Escape" {
+                e.prevent_default();
+                if let Err(err) = app2.borrow_mut().set_text_entry_open(false, false) {
+                    log_error(err);
+                }
+            }
+        }));
+        input.add_event_listener_with_callback("keydown", cb.as_ref().unchecked_ref())?;
+        cb.forget();
+    }
+
+    if let Some(dot) = document
+        .get_element_by_id("textEntryDot")
+        .and_then(|e| e.dyn_into::<HtmlElement>().ok())
+    {
+        let app2 = app.clone();
         let cb = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_e: Event| {
-            if let Err(err) = app2.borrow_mut().sync_shape_text_from_input(false) {
+            if let Err(err) = app2.borrow_mut().set_text_entry_open(true, true) {
+                log_error(err);
+            }
+        }));
+        dot.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())?;
+        cb.forget();
+    }
+
+    if let Some(btn) = document
+        .get_element_by_id("textEntryClose")
+        .and_then(|e| e.dyn_into::<HtmlElement>().ok())
+    {
+        let app2 = app.clone();
+        let cb = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_e: Event| {
+            if let Err(err) = app2.borrow_mut().set_text_entry_open(false, false) {
+                log_error(err);
+            }
+        }));
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())?;
+        cb.forget();
+    }
+
+    if let Some(btn) = document
+        .get_element_by_id("textEntryApply")
+        .and_then(|e| e.dyn_into::<HtmlElement>().ok())
+    {
+        let app2 = app.clone();
+        let cb = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_e: Event| {
+            if let Err(err) = app2.borrow_mut().submit_text_entry() {
+                log_error(err);
+            }
+        }));
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())?;
+        cb.forget();
+    }
+
+    if let Some(input) = document
+        .get_element_by_id("particleSlider")
+        .and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
+    {
+        let app2 = app.clone();
+        let input_for_cb = input.clone();
+        let cb = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_e: Event| {
+            let value = input_for_cb.value().parse::<i32>().unwrap_or(50);
+            if let Err(err) = app2.borrow_mut().set_particle_amount(value) {
                 log_error(err);
             }
         }));
         input.add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())?;
-        cb.forget();
-
-        let app2 = app.clone();
-        let cb = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_e: Event| {
-            if let Err(err) = app2.borrow_mut().sync_shape_text_from_input(true) {
-                log_error(err);
-            }
-        }));
-        input.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref())?;
-        cb.forget();
-
-        let app2 = app.clone();
-        let cb = Closure::<dyn FnMut(KeyboardEvent)>::wrap(Box::new(move |e: KeyboardEvent| {
-            if e.key() != "Enter" {
-                return;
-            }
-            e.prevent_default();
-            if let Err(err) = app2.borrow_mut().trigger_shape_form(None) {
-                log_error(err);
-            }
-        }));
-        input.add_event_listener_with_callback("keydown", cb.as_ref().unchecked_ref())?;
         cb.forget();
     }
 
@@ -1846,8 +2052,13 @@ fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
                 return;
             }
             let now = e.time_stamp();
-            app2.borrow_mut()
-                .on_pointer_down(e.client_x() as f64, e.client_y() as f64, now);
+            let is_touch = e.pointer_type() == "touch";
+            app2.borrow_mut().on_pointer_down(
+                e.client_x() as f64,
+                e.client_y() as f64,
+                now,
+                is_touch,
+            );
         }));
         canvas.add_event_listener_with_callback("pointerdown", cb.as_ref().unchecked_ref())?;
         cb.forget();
@@ -1865,6 +2076,15 @@ fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
             }
         }));
         canvas.add_event_listener_with_callback("pointerup", cb.as_ref().unchecked_ref())?;
+        cb.forget();
+    }
+
+    {
+        let app2 = app.clone();
+        let cb = Closure::<dyn FnMut(PointerEvent)>::wrap(Box::new(move |_e: PointerEvent| {
+            app2.borrow_mut().on_pointer_cancel();
+        }));
+        canvas.add_event_listener_with_callback("pointercancel", cb.as_ref().unchecked_ref())?;
         cb.forget();
     }
 
@@ -2024,7 +2244,12 @@ fn normalize_shape_text(input: &str, fallback_on_empty: bool) -> String {
     }
 }
 
-fn build_shape_targets(document: &Document, text: &str, layout: ShapeLayout, count: usize) -> Vec<f32> {
+fn build_shape_targets(
+    document: &Document,
+    text: &str,
+    layout: ShapeLayout,
+    count: usize,
+) -> Vec<f32> {
     let mut samples = Vec::<(f32, f32)>::new();
     let cleaned = normalize_shape_text(text, true);
     let glyph_points =
@@ -2538,6 +2763,13 @@ fn hex_to_rgb01(hex: &str) -> [f32; 3] {
     ]
 }
 
+fn rgb01_to_hex(rgb: [f32; 3]) -> String {
+    let r = (clamp_f32(rgb[0], 0.0, 1.0) * 255.0).round() as u8;
+    let g = (clamp_f32(rgb[1], 0.0, 1.0) * 255.0).round() as u8;
+    let b = (clamp_f32(rgb[2], 0.0, 1.0) * 255.0).round() as u8;
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
 fn lerp_rgb(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [
         a[0] + (b[0] - a[0]) * t,
@@ -2548,23 +2780,23 @@ fn lerp_rgb(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 
 fn random_two_tone_pair(rng: &mut Lcg) -> ([f32; 3], [f32; 3]) {
     let h1 = rng.f32();
-    let hue_gap = 0.20 + 0.28 * rng.f32();
+    let hue_gap = 0.34 + 0.24 * rng.f32();
     let sign = if rng.f32() > 0.5 { 1.0 } else { -1.0 };
     let h2 = wrap01(h1 + sign * hue_gap);
 
-    let s1 = 0.52 + 0.40 * rng.f32();
-    let v1 = 0.74 + 0.24 * rng.f32();
-    let s2 = 0.46 + 0.44 * rng.f32();
-    let mut v2 = 0.62 + 0.30 * rng.f32();
+    let s1 = 0.76 + 0.22 * rng.f32();
+    let v1 = 0.84 + 0.16 * rng.f32();
+    let s2 = 0.72 + 0.26 * rng.f32();
+    let mut v2 = 0.48 + 0.42 * rng.f32();
 
     let color_a = hsv_to_rgb(h1, s1, v1);
     let mut color_b = hsv_to_rgb(h2, s2, v2);
     let lum_delta = (relative_luma(color_a) - relative_luma(color_b)).abs();
-    if lum_delta < 0.14 {
+    if lum_delta < 0.22 {
         v2 = if relative_luma(color_a) > 0.5 {
-            (v2 * 0.72).max(0.38)
+            (v2 * 0.56).max(0.26)
         } else {
-            (v2 * 1.18).min(1.0)
+            (v2 * 1.34 + 0.1).min(1.0)
         };
         color_b = hsv_to_rgb(h2, s2, v2);
     }

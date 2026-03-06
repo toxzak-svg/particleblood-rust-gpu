@@ -56,7 +56,7 @@
             </div>
             <div class="row row-shape">
               <div class="shape-controls">
-                <input id="shapeInput" type="text" value="TOUCH!" maxlength="18" aria-label="Shape text" />
+                <span class="shape-hint">Text entry moved to the bottom dot</span>
                 <div class="seg" id="layoutSeg" aria-label="Text layout mode">
                   <button type="button" data-layout="single" class="is-active">Big</button>
                   <button type="button" data-layout="multi">Many</button>
@@ -80,6 +80,39 @@
             <span>1/2/3: FX</span>
             <span>M/T</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-entry-launcher">
+      <button
+        type="button"
+        id="textEntryDot"
+        class="entry-dot"
+        aria-controls="textEntrySheet"
+        aria-expanded="false"
+        aria-label="Open text entry"
+      ></button>
+    </div>
+
+    <div class="text-entry-sheet" id="textEntrySheet" aria-hidden="true">
+      <div class="text-entry-card">
+        <div class="text-entry-head">
+          <span class="text-entry-title">Type Your Text</span>
+          <button type="button" id="textEntryClose" class="text-entry-close">Close</button>
+        </div>
+        <input
+          id="shapeInput"
+          type="text"
+          value=""
+          maxlength="18"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Shape text"
+          placeholder="Enter custom text"
+        />
+        <div class="text-entry-actions">
+          <button type="button" id="textEntryApply">Form</button>
         </div>
       </div>
     </div>
