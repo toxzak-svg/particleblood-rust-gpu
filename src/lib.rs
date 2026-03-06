@@ -233,6 +233,40 @@ void main() {
     float undulate = sin(t * 1.18 + dot(relDir, bodyAxis) * 6.5 + seed * 8.0);
     acc += bodyAxis * undulate * melt * 0.010;
 
+    // When fully melted and left alone, pull particles into warped bands with
+    // pockets along each band so they settle into visible clumped patterns.
+    float activeTools = max(uPointer.w, uAttractor.w);
+    float moltenIdle = smoothstep(0.70, 1.0, melt) * (1.0 - activeTools);
+    float speedNow = length(v);
+    float stillness = 1.0 - smoothstep(0.10, 0.48, speedNow);
+    float patternGain = moltenIdle * stillness;
+    if (patternGain > 0.0) {
+      float bandSpacing = 0.22;
+      float warpAmp = 0.17;
+      float warpFreq = 1.8;
+      float warpPhase = p.x * warpFreq + t * 0.09 + seed * 5.3;
+      float warpedY = p.y + sin(warpPhase) * warpAmp;
+      float bandIndex = floor(warpedY / bandSpacing + 0.5);
+      float bandOffset = warpedY - bandIndex * bandSpacing;
+
+      vec2 gradBand = vec2(cos(warpPhase) * warpAmp * warpFreq, 1.0);
+      vec2 bandNormal = normalize(gradBand);
+      vec2 bandTangent = vec2(-bandNormal.y, bandNormal.x);
+
+      float pocketSpacing = 0.24;
+      float jitter = fract(sin((bandIndex + phase * 3.7) * 17.31 + seed * 41.0) * 43758.5453);
+      float pocketOffset = (jitter - 0.5) * pocketSpacing * 0.9;
+      float along = dot(p, bandTangent);
+      float pocketCenter =
+          floor((along + pocketOffset) / pocketSpacing + 0.5) * pocketSpacing - pocketOffset;
+      float pocketDelta = along - pocketCenter;
+
+      float bandStrength = 0.24 * patternGain;
+      float pocketStrength = 0.12 * patternGain;
+      acc += -bandNormal * (bandOffset * bandStrength);
+      acc += -bandTangent * (pocketDelta * pocketStrength);
+    }
+
   if (uAttractor.w > 0.5) {
     float attractMass = uAttractor.z * 3.0;
     float attractSpin = uAttractorSpin * 0.65;
@@ -283,6 +317,11 @@ void main() {
   float density = 1.18;
   v += acc * (dt / density);
     float damping = pow(0.9965, dt * 60.0);
+    if (patternGain > 0.0) {
+      // Extra settling once patterns form so clumps read clearly.
+      float settleDamping = pow(0.989, dt * 60.0 * patternGain);
+      damping *= settleDamping;
+    }
   v *= damping;
   float speed = length(v);
     float maxSpeed = 4.9 + uFx.y * 0.8;
