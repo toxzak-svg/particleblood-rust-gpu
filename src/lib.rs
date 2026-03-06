@@ -25,11 +25,16 @@ const COLOR_SHIFT_MIN_S: f64 = 1.4;
 const COLOR_SHIFT_MAX_S: f64 = 3.0;
 const COLOR_HOLD_MIN_S: f64 = 0.4;
 const COLOR_HOLD_MAX_S: f64 = 1.2;
-const TOUCH_ATTRACT_RAMP_S: f64 = 1.35;
-const TOUCH_ATTRACT_MAX_GAIN: f32 = 3.4;
+const TOUCH_ATTRACT_RAMP_S: f64 = 2.4;
+const TOUCH_ATTRACT_MAX_GAIN: f32 = 5.6;
 const TOUCH_ATTRACT_WAVE_A_HZ: f32 = 1.7;
 const TOUCH_ATTRACT_WAVE_B_HZ: f32 = 4.2;
 const TOUCH_ATTRACT_WAVE_BLEND: f32 = 0.36;
+const TOUCH_BURST_MIN_HOLD_S: f64 = 0.55;
+const TOUCH_BURST_FULL_HOLD_S: f64 = 3.2;
+const TOUCH_BURST_DURATION_S: f64 = 1.15;
+const TOUCH_BURST_MIN_STRENGTH: f32 = 1.0;
+const TOUCH_BURST_MAX_STRENGTH: f32 = 4.2;
 const PARTICLE_TEX_LADDER: &[i32] = &[
     128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 704, 768, 896, 1024, 1280, 1536, 1792,
     2048, 2304,
@@ -157,6 +162,8 @@ uniform float uAttractorSpin;
 uniform vec2 uViewport;
 uniform vec4 uShape;        // x mix, y pull, z orbit, w active
 uniform vec4 uFx;           // x flow gain, y particle spark, z flare, w unused
+uniform vec4 uTouchBurst;   // xy center, z strength, w active
+uniform vec4 uTouchBurstFx; // x progress, y age, z ring radius, w rebound
 
 void applyMagnet(inout vec2 acc, vec2 p, vec2 center, float mass, float spin, float falloffBias) {
   vec2 d = center - p;
@@ -180,6 +187,7 @@ void main() {
   float dt = min(uDt, 0.033);
   float aspect = uViewport.x / max(uViewport.y, 1.0);
   vec2 acc = vec2(0.0);
+    float burstProgress = clamp(uTouchBurstFx.x, 0.0, 1.0);
     float shapeMix = clamp(uShape.x, 0.0, 1.0);
     float melt = 1.0 - shapeMix;
     float breathe = 0.5 + 0.5 * sin(t * 0.42 + seed * 4.1 + phase * 2.9);
@@ -291,6 +299,27 @@ void main() {
     }
   }
 
+  if (uTouchBurst.w > 0.5) {
+    vec2 dBurst = p - uTouchBurst.xy;
+    float burstDist2 = dot(dBurst, dBurst) + 1e-6;
+    float burstDist = sqrt(burstDist2);
+    vec2 burstDir = dBurst / burstDist;
+    float burstStrength = max(uTouchBurst.z, 0.0);
+    float strengthNorm = clamp(burstStrength / 4.2, 0.0, 1.0);
+    float core = exp(-burstDist2 * mix(14.0, 6.0, strengthNorm));
+    float ringRadius = uTouchBurstFx.z;
+    float ringWidth = mix(0.055, 0.14, strengthNorm);
+    float ringDelta = (burstDist - ringRadius) / max(ringWidth, 1e-4);
+    float shock = exp(-ringDelta * ringDelta);
+    float envelope = 1.0 - smoothstep(0.0, 1.0, burstProgress);
+    float pulse = 1.0 + 0.28 * sin((uTouchBurstFx.y * 18.0 + seed * 6.2831));
+    float outward = core * (1.3 + 0.9 * burstStrength)
+        + shock * (2.5 + 1.9 * burstStrength) * pulse;
+    acc += burstDir * outward * envelope;
+    acc += vec2(-burstDir.y, burstDir.x) * shock * (0.16 + 0.26 * burstStrength) * envelope;
+    acc -= burstDir * shock * uTouchBurstFx.w * (0.9 + 1.1 * burstStrength);
+  }
+
   if (uShape.w > 0.5) {
     vec2 target = texture(uShapeTargetTex, uv).xy;
     target.x *= aspect;
@@ -328,6 +357,10 @@ void main() {
     if (uAttractor.w > 0.5) {
       maxSpeed *= 1.7;
     }
+    if (uTouchBurst.w > 0.5) {
+      float burstSpeedBoost = (1.0 - burstProgress) * (1.4 + uTouchBurst.z * 1.8);
+      maxSpeed += burstSpeedBoost;
+    }
     if (uShape.w > 0.5) {
       float settleCap = smoothstep(0.62, 0.98, clamp(uShape.x, 0.0, 1.0));
       maxSpeed *= mix(1.0, 0.82, settleCap);
@@ -344,6 +377,9 @@ void main() {
     float restitution = mix(0.9, 0.78, settleBounce);
     if (uAttractor.w > 0.5) {
       restitution *= 0.92;
+    }
+    if (uTouchBurst.w > 0.5) {
+      restitution = min(1.2, restitution + uTouchBurstFx.w * (0.22 + 0.06 * uTouchBurst.z));
     }
     if (p.x > bounds.x) { p.x = bounds.x; v.x *= -restitution; }
     else if (p.x < -bounds.x) { p.x = -bounds.x; v.x *= -restitution; }
@@ -454,6 +490,15 @@ struct MouseTapState {
     moved: bool,
 }
 
+#[derive(Clone, Copy, Default)]
+struct TouchBurstState {
+    active: bool,
+    x: f32,
+    y: f32,
+    start_s: f64,
+    strength: f32,
+}
+
 struct AppState {
     time: f64,
     last_time: f64,
@@ -478,6 +523,7 @@ struct AppState {
     attractor: AttractorState,
     shape: ShapeState,
     mouse_tap: MouseTapState,
+    touch_burst: TouchBurstState,
     stats: StatsState,
 }
 
@@ -682,6 +728,7 @@ impl App {
                     t_ms: 0.0,
                     moved: false,
                 },
+                touch_burst: TouchBurstState::default(),
                 stats: StatsState {
                     fps: 60.0,
                     sample_accum: 0.0,
@@ -872,19 +919,72 @@ impl App {
 
         let hold_s = (self.state.time - self.state.attractor.touch_hold_start_s).max(0.0) as f32;
         let ramp = (hold_s / TOUCH_ATTRACT_RAMP_S as f32).clamp(0.0, 1.0);
-        let ramp_gain = 1.0 + (TOUCH_ATTRACT_MAX_GAIN - 1.0) * ramp;
+        let ramp_eased = ramp * ramp * (3.0 - 2.0 * ramp);
+        let ramp_gain = 1.0 + (TOUCH_ATTRACT_MAX_GAIN - 1.0) * ramp_eased;
         if ramp < 1.0 {
             return ramp_gain;
         }
 
         let wave_t = hold_s - TOUCH_ATTRACT_RAMP_S as f32;
-        let wave = (wave_t * TAU * TOUCH_ATTRACT_WAVE_A_HZ).sin() * 0.23
-            + (wave_t * TAU * TOUCH_ATTRACT_WAVE_B_HZ).sin() * 0.13;
+        let wave = (wave_t * TAU * TOUCH_ATTRACT_WAVE_A_HZ).sin() * 0.19
+            + (wave_t * TAU * TOUCH_ATTRACT_WAVE_B_HZ).sin() * 0.11;
         let gain = TOUCH_ATTRACT_MAX_GAIN * (1.0 + wave * TOUCH_ATTRACT_WAVE_BLEND);
-        gain.clamp(TOUCH_ATTRACT_MAX_GAIN * 0.72, TOUCH_ATTRACT_MAX_GAIN * 1.24)
+        gain.clamp(TOUCH_ATTRACT_MAX_GAIN * 0.78, TOUCH_ATTRACT_MAX_GAIN * 1.28)
+    }
+
+    fn touch_hold_charge_from_duration(hold_s: f64) -> f32 {
+        let span = (TOUCH_BURST_FULL_HOLD_S - TOUCH_BURST_MIN_HOLD_S).max(1e-6);
+        let t = ((hold_s - TOUCH_BURST_MIN_HOLD_S) / span).clamp(0.0, 1.0) as f32;
+        t * t * (3.0 - 2.0 * t)
+    }
+
+    fn trigger_touch_release_burst(&mut self, hold_s: f64) {
+        if hold_s < TOUCH_BURST_MIN_HOLD_S {
+            return;
+        }
+        let charge = Self::touch_hold_charge_from_duration(hold_s);
+        let strength = TOUCH_BURST_MIN_STRENGTH
+            + (TOUCH_BURST_MAX_STRENGTH - TOUCH_BURST_MIN_STRENGTH) * charge;
+        self.state.touch_burst = TouchBurstState {
+            active: true,
+            x: self.state.pointer.nx,
+            y: self.state.pointer.ny,
+            start_s: self.state.time,
+            strength,
+        };
+    }
+
+    fn touch_burst_uniforms(&mut self) -> ([f32; 4], [f32; 4]) {
+        if !self.state.touch_burst.active {
+            return ([0.0; 4], [0.0; 4]);
+        }
+
+        let age = (self.state.time - self.state.touch_burst.start_s).max(0.0);
+        if age >= TOUCH_BURST_DURATION_S {
+            self.state.touch_burst.active = false;
+            return ([0.0; 4], [0.0; 4]);
+        }
+
+        let progress = (age / TOUCH_BURST_DURATION_S) as f32;
+        let strength = self.state.touch_burst.strength.max(0.0);
+        let ring_radius = 0.06 + progress * (0.74 + strength * 0.26);
+        let rebound_up = smoothstep_f32(0.20, 0.52, progress);
+        let rebound_down = 1.0 - smoothstep_f32(0.62, 0.98, progress);
+        let rebound = (rebound_up * rebound_down * (0.35 + 0.24 * strength)).clamp(0.0, 1.3);
+
+        (
+            [
+                self.state.touch_burst.x,
+                self.state.touch_burst.y,
+                strength,
+                1.0,
+            ],
+            [progress, age as f32, ring_radius, rebound],
+        )
     }
 
     fn step_particles(&mut self, dt: f32) {
+        let (touch_burst, touch_burst_fx) = self.touch_burst_uniforms();
         let Some(ps) = self.particles.as_ref() else {
             return;
         };
@@ -990,6 +1090,20 @@ impl App {
             fx.particle_spark,
             fx.flare,
             0.0,
+        );
+        self.gl.uniform4f(
+            self.uniform(&self.programs.sim, "uTouchBurst").as_ref(),
+            touch_burst[0],
+            touch_burst[1],
+            touch_burst[2],
+            touch_burst[3],
+        );
+        self.gl.uniform4f(
+            self.uniform(&self.programs.sim, "uTouchBurstFx").as_ref(),
+            touch_burst_fx[0],
+            touch_burst_fx[1],
+            touch_burst_fx[2],
+            touch_burst_fx[3],
         );
 
         self.run_fullscreen();
@@ -1185,9 +1299,24 @@ impl App {
         self.state.mouse_tap.moved = false;
     }
 
-    fn on_pointer_up(&mut self, now_ms: f64) -> Result<(), JsValue> {
+    fn on_pointer_up(
+        &mut self,
+        client_x: f64,
+        client_y: f64,
+        now_ms: f64,
+        is_touch: bool,
+    ) -> Result<(), JsValue> {
+        self.on_pointer_move(client_x, client_y, now_ms);
+        let hold_s = if is_touch && self.state.attractor.touch_hold_active {
+            (now_ms * 0.001 - self.state.attractor.touch_hold_start_s).max(0.0)
+        } else {
+            0.0
+        };
         self.state.pointer.down = false;
         self.state.attractor.enabled = false;
+        if is_touch {
+            self.trigger_touch_release_burst(hold_s);
+        }
         self.clear_touch_hold();
         let dt = now_ms - self.state.mouse_tap.t_ms;
         if self.state.mouse_tap.active && !self.state.mouse_tap.moved && dt <= TAP_TRIGGER_MAX_MS {
@@ -2110,7 +2239,13 @@ fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
                 return;
             }
             let now = e.time_stamp();
-            if let Err(err) = app2.borrow_mut().on_pointer_up(now) {
+            let is_touch = e.pointer_type() == "touch";
+            if let Err(err) = app2.borrow_mut().on_pointer_up(
+                e.client_x() as f64,
+                e.client_y() as f64,
+                now,
+                is_touch,
+            ) {
                 log_error(err);
             }
         }));
@@ -2911,6 +3046,14 @@ fn format_particle_count(count: usize) -> String {
 
 fn clamp_f32(v: f32, lo: f32, hi: f32) -> f32 {
     v.max(lo).min(hi)
+}
+
+fn smoothstep_f32(edge0: f32, edge1: f32, x: f32) -> f32 {
+    if edge1 <= edge0 {
+        return if x < edge0 { 0.0 } else { 1.0 };
+    }
+    let t = clamp_f32((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 fn js_err(msg: &str) -> JsValue {
