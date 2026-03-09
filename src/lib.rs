@@ -2,24 +2,50 @@ use std::cell::RefCell;
 use std::f32::consts::TAU;
 use std::rc::Rc;
 
-use js_sys::{Float32Array, Math};
+use js_sys::{Float32Array, Math, Reflect};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    CanvasRenderingContext2d, Document, Element, Event, EventTarget, HtmlCanvasElement,
-    HtmlElement, HtmlInputElement, KeyboardEvent, MouseEvent, PointerEvent,
-    WebGl2RenderingContext as GL, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader,
-    WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject, WheelEvent, Window,
+    CanvasRenderingContext2d, DeviceMotionEvent, Document, Element, Event, EventTarget,
+    HtmlCanvasElement, HtmlElement, HtmlInputElement, KeyboardEvent, MouseEvent,
+    PointerEvent, WebGl2RenderingContext as GL, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
+    WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject, WheelEvent, Window,
 };
 
 thread_local! {
     static APP_HOLDER: RefCell<Option<Rc<RefCell<App>>>> = const { RefCell::new(None) };
 }
 
+/// Set before start() to run in story mode with a custom message. JS should call this after parsing URL (e.g. ?m=1&t=Hello).
+#[wasm_bindgen(js_name = initStoryMode)]
+pub fn init_story_mode(message: &str, story_mode: bool) {
+    STORY_INIT.with(|cell| {
+        *cell.borrow_mut() = Some(StoryInit {
+            message: message.to_string(),
+            story_mode,
+        });
+    });
+}
+
+struct StoryInit {
+    message: String,
+    story_mode: bool,
+}
+
+thread_local! {
+    static STORY_INIT: RefCell<Option<StoryInit>> = const { RefCell::new(None) };
+}
+
 const TAP_TRIGGER_MAX_MS: f64 = 260.0;
 const TAP_TRIGGER_MAX_MOVE_PX: f32 = 16.0;
 const SHAPE_FORM_DURATION_S: f64 = 2.3;
-const DEFAULT_SHAPE_TEXT: &str = "TOUCH!";
+const INTRO_TITLE: &str = "RUSTY PARTS";
+const DEFAULT_SHAPE_TEXT: &str = "Touch!";
+const INTRO_FADE_IN_S: f64 = 0.0;
+const INTRO_HOLD_S: f64 = 0.9;
+const INTRO_MELT_S: f64 = 0.7;
+const INTRO_BURST_STRENGTH: f32 = 4.2;
+const INTRO_BURST_COUNT: usize = 20;
 const PARTICLE_RESOLUTION_SCALE: f64 = 1.30;
 const COLOR_SHIFT_MIN_S: f64 = 1.4;
 const COLOR_SHIFT_MAX_S: f64 = 3.0;
@@ -31,6 +57,9 @@ const TOUCH_ATTRACT_WAVE_A_HZ: f32 = 1.7;
 const TOUCH_ATTRACT_WAVE_B_HZ: f32 = 4.2;
 const TOUCH_ATTRACT_WAVE_BLEND: f32 = 0.36;
 const TOUCH_BURST_MIN_HOLD_S: f64 = 0.55;
+/// Gravity scale: map device g (m/s²) to NDC acceleration. ~0.06 gives subtle tilt.
+const TILT_GRAVITY_SCALE: f32 = 0.06;
+const TILT_SMOOTH: f32 = 0.14;
 const TOUCH_BURST_FULL_HOLD_S: f64 = 3.2;
 const TOUCH_BURST_DURATION_S: f64 = 1.15;
 const TOUCH_BURST_MIN_STRENGTH: f32 = 1.0;
@@ -71,14 +100,54 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
+float hash21(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// Approximate complementary: darken and shift hue for a background that complements the particle tint
+vec3 tintToComplement(vec3 c) {
+  float mx = max(max(c.r, c.g), c.b);
+  float mn = min(min(c.r, c.g), c.b);
+  float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  vec3 comp = vec3(1.0 - c.r * 0.7, 1.0 - c.g * 0.5, 1.0 - c.b * 0.6);
+  comp = mix(comp, vec3(0.08, 0.06, 0.14), 0.92);
+  return comp;
+}
+
 void main() {
-  vec3 color = vec3(0.0);
+  vec2 uv = vUv - 0.5;
+  float aspect = uResolution.x / max(uResolution.y, 1.0);
+  uv.x *= aspect;
+  float r = length(uv) * 1.4;
+
+  vec3 base = tintToComplement(uTint);
+  float pulse = 0.5 + 0.5 * sin(uTime * 0.4);
+  base += (uTint * 0.06 + 0.02) * (0.3 + 0.7 * uFx.w * pulse);
+
+  float vignette = 1.0 - smoothstep(0.5, 1.2, r);
+  vignette = 0.4 + 0.6 * vignette;
+  base *= vignette;
+
+  float n = hash21(floor(uv * 80.0 + uTime * 2.0));
+  float wave = sin(uv.x * 6.0 + uTime * 0.8) * sin(uv.y * 5.0 - uTime * 0.6) * 0.5 + 0.5;
+  float soft = mix(n, wave, 0.3) * 0.04 * (1.0 + uFx.w * 0.5);
+  base += soft * (uTint + 0.1);
+
+  if (uFxMode == 1) {
+    float prism = sin(uv.x * 3.0 + uTime * 0.5) * sin(uv.y * 4.0 + uTime * 0.3);
+    base += vec3(0.02, 0.0, 0.03) * (0.5 + 0.5 * prism) * uFx.y;
+  } else if (uFxMode == 2) {
+    float plasma = sin(r * 4.0 - uTime) * sin(uv.x * 8.0 + uTime * 0.7) * 0.5 + 0.5;
+    base += vec3(0.03, 0.01, 0.02) * plasma * (0.6 + 0.4 * uFx.w);
+  }
+
   if (uFx.z > 0.001) {
     float grain = hash12(vUv * uResolution + fract(uTime * 60.0));
-    color += (grain - 0.5) * (0.004 + 0.018 * uFx.z);
+    base += (grain - 0.5) * (0.004 + 0.018 * uFx.z);
   }
-  color = max(color, 0.0);
-  outColor = vec4(color, 1.0);
+
+  base = clamp(base, 0.0, 1.0);
+  outColor = vec4(base, 1.0);
 }
 "#;
 
@@ -164,6 +233,10 @@ uniform vec4 uShape;        // x mix, y pull, z orbit, w active
 uniform vec4 uFx;           // x flow gain, y particle spark, z flare, w unused
 uniform vec4 uTouchBurst;   // xy center, z strength, w active
 uniform vec4 uTouchBurstFx; // x progress, y age, z ring radius, w rebound
+uniform float uIntroBurstDuration;
+uniform int uIntroBurstCount;
+uniform vec4 uIntroBursts[20]; // xy center, z strength, w start_s
+uniform vec2 uTilt;         // device tilt as gravity bias (x right, y up in NDC)
 
 void applyMagnet(inout vec2 acc, vec2 p, vec2 center, float mass, float spin, float falloffBias) {
   vec2 d = center - p;
@@ -206,6 +279,7 @@ void main() {
     ( n1 + 0.35 * cos(p.x * 2.7 - t * 0.5 + phase * 2.0)) * swirl
   );
     acc += vec2(-v.y, v.x) * 0.005;
+    acc += uTilt;
 
     vec2 toCenter = liveCenter - p;
 
@@ -320,6 +394,31 @@ void main() {
     acc -= burstDir * shock * uTouchBurstFx.w * (0.9 + 1.1 * burstStrength);
   }
 
+  for (int i = 0; i < 20; i++) {
+    if (i >= uIntroBurstCount) break;
+    vec2 bxy = uIntroBursts[i].xy;
+    float bstr = max(uIntroBursts[i].z, 0.0);
+    float bstart = uIntroBursts[i].w;
+    float age = t - bstart;
+    if (age >= uIntroBurstDuration || age < 0.0) continue;
+    float progress = age / uIntroBurstDuration;
+    vec2 dBurst = p - bxy;
+    float burstDist2 = dot(dBurst, dBurst) + 1e-6;
+    float burstDist = sqrt(burstDist2);
+    vec2 burstDir = dBurst / burstDist;
+    float strengthNorm = clamp(bstr / 4.2, 0.0, 1.0);
+    float core = exp(-burstDist2 * mix(14.0, 6.0, strengthNorm));
+    float ringRadius = 0.06 + progress * (0.74 + bstr * 0.26);
+    float ringWidth = mix(0.055, 0.14, strengthNorm);
+    float ringDelta = (burstDist - ringRadius) / max(ringWidth, 1e-4);
+    float shock = exp(-ringDelta * ringDelta);
+    float envelope = 1.0 - smoothstep(0.0, 1.0, progress);
+    float pulse = 1.0 + 0.28 * sin((age * 18.0 + seed * 6.2831));
+    float outward = core * (1.3 + 0.9 * bstr) + shock * (2.5 + 1.9 * bstr) * pulse;
+    acc += burstDir * outward * envelope;
+    acc += vec2(-burstDir.y, burstDir.x) * shock * (0.16 + 0.26 * bstr) * envelope;
+  }
+
   if (uShape.w > 0.5) {
     vec2 target = texture(uShapeTargetTex, uv).xy;
     target.x *= aspect;
@@ -361,6 +460,9 @@ void main() {
       float burstSpeedBoost = (1.0 - burstProgress) * (1.4 + uTouchBurst.z * 1.8);
       maxSpeed += burstSpeedBoost;
     }
+    if (uIntroBurstCount > 0) {
+      maxSpeed += 6.0;
+    }
     if (uShape.w > 0.5) {
       float settleCap = smoothstep(0.62, 0.98, clamp(uShape.x, 0.0, 1.0));
       maxSpeed *= mix(1.0, 0.82, settleCap);
@@ -387,6 +489,20 @@ void main() {
     else if (p.y < -bounds.y) { p.y = -bounds.y; v.y *= -restitution; }
 
   outState = vec4(p, v);
+}
+"#;
+
+const SNAP_STATE_FS: &str = r#"#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outState;
+uniform sampler2D uShapeTargetTex;
+uniform float uAspect;
+void main() {
+  vec4 shape = texture(uShapeTargetTex, vUv);
+  float px = shape.x * uAspect;
+  float py = shape.y;
+  outState = vec4(px, py, 0.0, 0.0);
 }
 "#;
 
@@ -502,6 +618,11 @@ struct TouchBurstState {
 struct AppState {
     time: f64,
     last_time: f64,
+    /// Wall time when the first frame ran; intro uses (time - start_time).
+    start_time: f64,
+    /// 0 = hold words, 1 = hold, 2 = melt/explode, 3 = done
+    intro_phase: u8,
+    intro_snapped: bool,
     dpr: f64,
     width: i32,
     height: i32,
@@ -524,7 +645,17 @@ struct AppState {
     shape: ShapeState,
     mouse_tap: MouseTapState,
     touch_burst: TouchBurstState,
+    intro_burst_xy: [(f32, f32); INTRO_BURST_COUNT],
+    intro_burst_start_s: f64,
+    intro_burst_count: i32,
     stats: StatsState,
+    /// Device tilt: gravity bias for particles (x = right, y = up in NDC). Smoothed.
+    tilt_x: f32,
+    tilt_y: f32,
+    /// Story mode: one-shot form → hold → melt, then callback and stop.
+    story_mode: bool,
+    /// Set when story mode melt is done; animation loop stops.
+    story_finished: bool,
 }
 
 struct UiRefs {
@@ -536,6 +667,7 @@ struct UiRefs {
     color_hex: Option<HtmlElement>,
     particle_slider: Option<HtmlInputElement>,
     particle_count_out: Option<HtmlElement>,
+    footer_particle_count: Option<HtmlElement>,
     shape_input: Option<HtmlInputElement>,
     layout_seg: Option<Element>,
     form_btn: Option<HtmlElement>,
@@ -550,6 +682,7 @@ struct Programs {
     background: WebGlProgram,
     sim: WebGlProgram,
     particle: WebGlProgram,
+    snap_state: WebGlProgram,
 }
 
 struct ParticleStateBuffer {
@@ -600,6 +733,12 @@ pub fn start() -> Result<(), JsValue> {
         a.sync_ui(false)?;
     }
     attach_listeners(app.clone())?;
+
+    if app.borrow().state.story_mode && !invoke_should_run_story() {
+        invoke_show_gone();
+        return Ok(());
+    }
+
     start_animation_loop(app.clone())?;
 
     APP_HOLDER.with(|slot| {
@@ -682,6 +821,9 @@ impl App {
             state: AppState {
                 time: 0.0,
                 last_time: 0.0,
+                start_time: 0.0,
+                intro_phase: 0,
+                intro_snapped: false,
                 dpr: 1.0,
                 width: 1,
                 height: 1,
@@ -714,7 +856,7 @@ impl App {
                     touch_hold_start_s: 0.0,
                 },
                 shape: ShapeState {
-                    text: DEFAULT_SHAPE_TEXT.to_string(),
+                    text: INTRO_TITLE.to_string(),
                     layout: ShapeLayout::Single,
                     mix: 1.0,
                     target_mix: 1.0,
@@ -729,14 +871,36 @@ impl App {
                     moved: false,
                 },
                 touch_burst: TouchBurstState::default(),
+                intro_burst_xy: [(0.0, 0.0); INTRO_BURST_COUNT],
+                intro_burst_start_s: 0.0,
+                intro_burst_count: 0,
                 stats: StatsState {
                     fps: 60.0,
                     sample_accum: 0.0,
                     frame_accum: 0.0,
                     samples: 0,
                 },
+                story_mode: false,
+                story_finished: false,
+                tilt_x: 0.0,
+                tilt_y: 0.0,
             },
         };
+
+        parse_story_mode_from_url(&mut app);
+        STORY_INIT.with(|cell| {
+            if let Some(init) = cell.borrow_mut().take() {
+                if init.story_mode {
+                    app.state.story_mode = true;
+                    let msg = normalize_shape_text(&init.message, false);
+                    app.state.shape.text = if msg.is_empty() {
+                        INTRO_TITLE.to_string()
+                    } else {
+                        msg
+                    };
+                }
+            }
+        });
 
         app.apply_particle_color("#9bffb3")?;
         Ok(app)
@@ -865,11 +1029,164 @@ impl App {
             .unwrap_or(false)
     }
 
+    fn step_intro(&mut self) -> Result<(), JsValue> {
+        if self.state.intro_phase >= 3 {
+            return Ok(());
+        }
+        let elapsed = self.state.time - self.state.start_time;
+        match self.state.intro_phase {
+            0 => {
+                if elapsed >= INTRO_FADE_IN_S {
+                    self.state.intro_phase = 1;
+                    // #region agent log
+                    debug_log(
+                        "lib.rs:step_intro",
+                        "phase 0->1",
+                        "A",
+                        &[
+                            ("elapsed", elapsed),
+                            ("start_time", self.state.start_time),
+                        ],
+                    );
+                    // #endregion
+                }
+            }
+            1 => {
+                if elapsed >= INTRO_FADE_IN_S + INTRO_HOLD_S {
+                    self.state.shape.target_mix = 0.0;
+                    self.state.intro_phase = 2;
+                    // #region agent log
+                    debug_log(
+                        "lib.rs:step_intro",
+                        "phase 1->2 melt+bursts",
+                        "A",
+                        &[
+                            ("elapsed", elapsed),
+                            ("start_time", self.state.start_time),
+                        ],
+                    );
+                    // #endregion
+                    self.trigger_intro_bursts_multi()?;
+                }
+            }
+            2 => {
+                let melt_done = elapsed >= INTRO_FADE_IN_S + INTRO_HOLD_S + INTRO_MELT_S
+                    || self.state.shape.mix < 0.08;
+                if melt_done {
+                    if self.state.story_mode {
+                        self.state.intro_phase = 3;
+                        self.state.story_finished = true;
+                        invoke_story_complete_callback();
+                    } else {
+                        self.state.shape.text = DEFAULT_SHAPE_TEXT.to_string();
+                        self.state.shape.target_mix = 1.0;
+                        self.state.intro_phase = 3;
+                        self.rebuild_shape_targets()?;
+                        self.update_shape_action_buttons()?;
+                    }
+                    // #region agent log
+                    debug_log(
+                        "lib.rs:step_intro",
+                        "phase 2->3 done",
+                        "A",
+                        &[("elapsed", elapsed), ("shape_mix", self.state.shape.mix as f64)],
+                    );
+                    // #endregion
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn trigger_intro_bursts_multi(&mut self) -> Result<(), JsValue> {
+        let aspect =
+            (self.state.width as f32) / (self.state.height as f32).max(1.0);
+        let now = self.state.time;
+        self.state.intro_burst_start_s = now;
+        self.state.intro_burst_count = INTRO_BURST_COUNT as i32;
+        // Spread 20 burst points over the letter area (NDC-like: x ~[-0.6,0.6], y ~[-0.35,0.35])
+        let mut idx = 0usize;
+        for row in 0..5 {
+            for col in 0..4 {
+                if idx >= INTRO_BURST_COUNT {
+                    break;
+                }
+                let jitter_x = ((idx as u32).wrapping_mul(0x9e3779b9) % 1000) as f32 / 1000.0 * 0.12 - 0.06;
+                let jitter_y = ((idx as u32).wrapping_mul(0x85ebca6b) % 1000) as f32 / 1000.0 * 0.08 - 0.04;
+                let x_ndc = -0.55 + (col as f32 + 0.5) * (1.1 / 4.0) + jitter_x;
+                let y_ndc = -0.28 + (row as f32 + 0.5) * (0.56 / 5.0) + jitter_y;
+                self.state.intro_burst_xy[idx] = (x_ndc * aspect, y_ndc);
+                idx += 1;
+            }
+        }
+        // #region agent log
+        let (bx, by) = self.state.intro_burst_xy[0];
+        debug_log(
+            "lib.rs:trigger_intro_bursts_multi",
+            "intro bursts triggered",
+            "C",
+            &[
+                ("intro_burst_start_s", self.state.intro_burst_start_s),
+                ("intro_burst_count", self.state.intro_burst_count as f64),
+                ("aspect", aspect as f64),
+                ("burst0_x", bx as f64),
+                ("burst0_y", by as f64),
+            ],
+        );
+        // #endregion
+        Ok(())
+    }
+
+    fn snap_particles_to_shape(&mut self) -> Result<(), JsValue> {
+        let Some(ps) = self.particles.as_ref() else {
+            return Ok(());
+        };
+        let read_index = ps.read_index;
+        let write_fbo = ps.buffers[read_index].fbo.clone();
+        let shape_target_tex = ps.shape_target_tex.clone();
+        let state_size = ps.size;
+        let aspect =
+            (self.state.width as f32) / (self.state.height as f32).max(1.0);
+
+        self.gl.bind_framebuffer(GL::FRAMEBUFFER, Some(&write_fbo));
+        self.gl.viewport(0, 0, state_size, state_size);
+        self.gl.disable(GL::BLEND);
+        self.gl.use_program(Some(&self.programs.snap_state));
+        self.gl.active_texture(GL::TEXTURE0);
+        self.gl
+            .bind_texture(GL::TEXTURE_2D, Some(&shape_target_tex));
+        self.gl.uniform1i(
+            self.uniform(&self.programs.snap_state, "uShapeTargetTex").as_ref(),
+            0,
+        );
+        self.gl.uniform1f(
+            self.uniform(&self.programs.snap_state, "uAspect").as_ref(),
+            aspect,
+        );
+        self.run_fullscreen();
+        self.gl.bind_framebuffer(GL::FRAMEBUFFER, None);
+        Ok(())
+    }
+
     fn frame(&mut self, now_ms: f64) -> Result<(), JsValue> {
         let now = now_ms * 0.001;
+        // #region agent log
         if self.state.last_time == 0.0 {
             self.state.last_time = now;
+            self.state.start_time = now;
+            debug_log(
+                "lib.rs:frame",
+                "first frame",
+                "A",
+                &[
+                    ("start_time", self.state.start_time),
+                    ("intro_phase", self.state.intro_phase as f64),
+                    ("intro_snapped", if self.state.intro_snapped { 1.0 } else { 0.0 }),
+                ],
+            );
         }
+        // #endregion
         let mut dt = (now - self.state.last_time).clamp(0.0, 0.05);
         self.state.last_time = now;
         self.state.time = now;
@@ -893,6 +1210,44 @@ impl App {
         self.state.pointer.vx *= 0.9;
         self.state.pointer.vy *= 0.9;
         self.step_random_color_shift();
+
+        self.step_intro()?;
+
+        // #region agent log
+        if self.state.intro_burst_count > 0
+            && self.state.time >= self.state.intro_burst_start_s + TOUCH_BURST_DURATION_S
+        {
+            debug_log(
+                "lib.rs:frame",
+                "intro_burst_count zeroed",
+                "D",
+                &[
+                    ("time", self.state.time),
+                    ("intro_burst_start_s", self.state.intro_burst_start_s),
+                    ("duration", TOUCH_BURST_DURATION_S),
+                    ("threshold", self.state.intro_burst_start_s + TOUCH_BURST_DURATION_S),
+                ],
+            );
+            self.state.intro_burst_count = 0;
+        }
+        // #endregion
+
+        if self.state.intro_phase < 3 && !self.state.intro_snapped {
+            // #region agent log
+            debug_log(
+                "lib.rs:frame",
+                "snap_particles_to_shape (first time)",
+                "B",
+                &[
+                    ("time", self.state.time),
+                    ("intro_phase", self.state.intro_phase as f64),
+                    ("has_particles", if self.particles.is_some() { 1.0 } else { 0.0 }),
+                ],
+            );
+            // #endregion
+            self.snap_particles_to_shape()?;
+            self.state.intro_snapped = true;
+        }
 
         if self.state.shape.release_at > 0.0 && self.state.time >= self.state.shape.release_at {
             self.state.shape.target_mix = 0.0;
@@ -1105,6 +1460,32 @@ impl App {
             touch_burst_fx[2],
             touch_burst_fx[3],
         );
+        self.gl.uniform1f(
+            self.uniform(&self.programs.sim, "uIntroBurstDuration").as_ref(),
+            TOUCH_BURST_DURATION_S as f32,
+        );
+        self.gl.uniform1i(
+            self.uniform(&self.programs.sim, "uIntroBurstCount").as_ref(),
+            self.state.intro_burst_count,
+        );
+        let mut intro_burst_data = [0.0f32; INTRO_BURST_COUNT * 4];
+        let start_s = self.state.intro_burst_start_s as f32;
+        for i in 0..INTRO_BURST_COUNT {
+            let base = i * 4;
+            intro_burst_data[base] = self.state.intro_burst_xy[i].0;
+            intro_burst_data[base + 1] = self.state.intro_burst_xy[i].1;
+            intro_burst_data[base + 2] = INTRO_BURST_STRENGTH;
+            intro_burst_data[base + 3] = start_s;
+        }
+        if let Some(loc) = self.uniform(&self.programs.sim, "uIntroBursts").as_ref() {
+            self.gl
+                .uniform4fv_with_f32_array(Some(loc), &intro_burst_data);
+        }
+        self.gl.uniform2f(
+            self.uniform(&self.programs.sim, "uTilt").as_ref(),
+            self.state.tilt_x,
+            self.state.tilt_y,
+        );
 
         self.run_fullscreen();
         self.gl.bind_framebuffer(GL::FRAMEBUFFER, None);
@@ -1280,6 +1661,19 @@ impl App {
         self.state.attractor.touch_hold_start_s = 0.0;
     }
 
+    fn haptic_light(&self) {
+        let _ = self.window.navigator().vibrate_with_duration(8);
+    }
+
+    fn haptic_medium(&self) {
+        let _ = self.window.navigator().vibrate_with_duration(20);
+    }
+
+    fn haptic_burst(&self) {
+        let pattern = js_sys::Array::of3(&8.into(), &35.into(), &12.into());
+        let _ = self.window.navigator().vibrate_with_pattern(pattern.as_ref());
+    }
+
     fn on_pointer_down(&mut self, client_x: f64, client_y: f64, now_ms: f64, is_touch: bool) {
         self.on_pointer_move(client_x, client_y, now_ms);
         self.state.pointer.down = true;
@@ -1289,6 +1683,7 @@ impl App {
         if is_touch {
             self.state.attractor.touch_hold_active = true;
             self.state.attractor.touch_hold_start_s = now_ms * 0.001;
+            self.haptic_light();
         } else {
             self.clear_touch_hold();
         }
@@ -1316,6 +1711,11 @@ impl App {
         self.state.attractor.enabled = false;
         if is_touch {
             self.trigger_touch_release_burst(hold_s);
+            if hold_s >= TOUCH_BURST_MIN_HOLD_S {
+                self.haptic_burst();
+            } else {
+                self.haptic_light();
+            }
         }
         self.clear_touch_hold();
         let dt = now_ms - self.state.mouse_tap.t_ms;
@@ -1331,6 +1731,18 @@ impl App {
         self.state.attractor.enabled = false;
         self.state.mouse_tap.active = false;
         self.clear_touch_hold();
+    }
+
+    /// Update tilt from device acceleration (including gravity). x/y/z in m/s²; smoothed.
+    fn on_device_motion(&mut self, gx: Option<f64>, gy: Option<f64>, gz: Option<f64>) {
+        let gx = gx.unwrap_or(0.0) as f32;
+        let _gy = gy.unwrap_or(0.0) as f32;
+        let gz = gz.unwrap_or(0.0) as f32;
+        let norm = 9.8f32.max(1e-3);
+        let target_x = (gx / norm) * TILT_GRAVITY_SCALE;
+        let target_y = (-gz / norm) * TILT_GRAVITY_SCALE;
+        self.state.tilt_x += (target_x - self.state.tilt_x) * TILT_SMOOTH;
+        self.state.tilt_y += (target_y - self.state.tilt_y) * TILT_SMOOTH;
     }
 
     fn norm_from_client(&self, client_x: f64, client_y: f64) -> (f32, f32, f32, f32) {
@@ -1507,12 +1919,14 @@ impl App {
         } else {
             0.0
         };
+        self.haptic_medium();
         self.update_shape_action_buttons()
     }
 
     fn trigger_shape_melt(&mut self) -> Result<(), JsValue> {
         self.state.shape.target_mix = 0.0;
         self.state.shape.release_at = 0.0;
+        self.haptic_medium();
         self.update_shape_action_buttons()
     }
 
@@ -1642,6 +2056,9 @@ impl App {
         };
         out.set_text_content(Some(&text));
         out.set_attribute("value", &text)?;
+        if let Some(footer) = &self.ui.footer_particle_count {
+            footer.set_text_content(Some(&format_particle_count(count)));
+        }
         Ok(())
     }
 
@@ -1712,6 +2129,9 @@ impl UiRefs {
             particle_count_out: document
                 .get_element_by_id("particleCountOut")
                 .and_then(|e| e.dyn_into::<HtmlElement>().ok()),
+            footer_particle_count: document
+                .get_element_by_id("footerParticleCount")
+                .and_then(|e| e.dyn_into::<HtmlElement>().ok()),
             shape_input: document
                 .get_element_by_id("shapeInput")
                 .and_then(|e| e.dyn_into::<HtmlInputElement>().ok()),
@@ -1742,6 +2162,7 @@ impl Programs {
             background: create_program(gl, FULLSCREEN_VS, BACKGROUND_FS)?,
             sim: create_program(gl, FULLSCREEN_VS, SIM_FS)?,
             particle: create_program(gl, PARTICLE_VS, PARTICLE_FS)?,
+            snap_state: create_program(gl, FULLSCREEN_VS, SNAP_STATE_FS)?,
         })
     }
 }
@@ -2195,6 +2616,23 @@ fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
 
     {
         let app2 = app.clone();
+        let cb = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |e: Event| {
+            if let Ok(ev) = e.dyn_into::<DeviceMotionEvent>() {
+                if let Some(acc) = ev.acceleration_including_gravity() {
+                    app2.borrow_mut().on_device_motion(
+                        acc.x(),
+                        acc.y(),
+                        acc.z(),
+                    );
+                }
+            }
+        }));
+        window.add_event_listener_with_callback("devicemotion", cb.as_ref().unchecked_ref())?;
+        cb.forget();
+    }
+
+    {
+        let app2 = app.clone();
         let cb = Closure::<dyn FnMut(PointerEvent)>::wrap(Box::new(move |e: PointerEvent| {
             let now = e.time_stamp();
             app2.borrow_mut()
@@ -2330,6 +2768,106 @@ where
     Ok(())
 }
 
+fn parse_story_mode_from_url(app: &mut App) {
+    let search = match app.window.location().search() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let search = search.trim_start_matches('?');
+    let mut story = false;
+    let mut text = String::new();
+    for part in search.split('&') {
+        if let Some((k, v)) = part.split_once('=') {
+            if k == "m" && (v == "1" || v.eq_ignore_ascii_case("true")) {
+                story = true;
+            } else if k == "t" {
+                text = percent_decode_query(v);
+            }
+        }
+    }
+    if story {
+        app.state.story_mode = true;
+        let msg = normalize_shape_text(&text, false);
+        app.state.shape.text = if msg.is_empty() {
+            INTRO_TITLE.to_string()
+        } else {
+            msg
+        };
+    }
+}
+
+fn percent_decode_query(input: &str) -> String {
+    let mut out = String::new();
+    let mut bytes = input.bytes();
+    while let Some(b) = bytes.next() {
+        if b == b'+' {
+            out.push(' ');
+        } else if b == b'%' {
+            let h = bytes.next().and_then(|c| hex_val(c));
+            let l = bytes.next().and_then(|c| hex_val(c));
+            if let (Some(hi), Some(lo)) = (h, l) {
+                out.push((hi << 4 | lo) as char);
+            } else {
+                out.push('%');
+            }
+        } else {
+            out.push(b as char);
+        }
+    }
+    out
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        _ => None,
+    }
+}
+
+fn invoke_should_run_story() -> bool {
+    let window = match web_sys::window() {
+        Some(w) => w,
+        None => return true,
+    };
+    let key = JsValue::from_str("rustypartsShouldRunStory");
+    if let Ok(v) = Reflect::get(window.as_ref(), &key) {
+        if let Ok(f) = v.dyn_into::<js_sys::Function>() {
+            if let Ok(result) = f.call0(&JsValue::NULL) {
+                return result.as_bool().unwrap_or(true);
+            }
+        }
+    }
+    true
+}
+
+fn invoke_show_gone() {
+    let window = match web_sys::window() {
+        Some(w) => w,
+        None => return,
+    };
+    let key = JsValue::from_str("rustypartsShowGone");
+    if let Ok(v) = Reflect::get(window.as_ref(), &key) {
+        if let Ok(f) = v.dyn_into::<js_sys::Function>() {
+            let _ = f.call0(&JsValue::NULL);
+        }
+    }
+}
+
+fn invoke_story_complete_callback() {
+    let window = match web_sys::window() {
+        Some(w) => w,
+        None => return,
+    };
+    let key = JsValue::from_str("rustypartsOnStoryComplete");
+    if let Ok(v) = Reflect::get(window.as_ref(), &key) {
+        if let Ok(f) = v.dyn_into::<js_sys::Function>() {
+            let _ = f.call0(&JsValue::NULL);
+        }
+    }
+}
+
 fn start_animation_loop(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
     let raf_cell = Rc::new(RefCell::new(None::<Closure<dyn FnMut(f64)>>));
     let raf_cell_for_cb = raf_cell.clone();
@@ -2338,6 +2876,9 @@ fn start_animation_loop(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
         move |now_ms: f64| {
             if let Err(err) = app.borrow_mut().frame(now_ms) {
                 log_error(err);
+                return;
+            }
+            if app.borrow().state.story_finished {
                 return;
             }
             if let Some(win) = web_sys::window()
@@ -2418,6 +2959,9 @@ fn normalize_shape_text(input: &str, fallback_on_empty: bool) -> String {
     }
 }
 
+/// Max characters on one line before stacking; also stack when text has spaces (multiple words).
+const SINGLE_LINE_MAX_CHARS: usize = 10;
+
 fn build_shape_targets(
     document: &Document,
     text: &str,
@@ -2426,14 +2970,31 @@ fn build_shape_targets(
 ) -> Vec<f32> {
     let mut samples = Vec::<(f32, f32)>::new();
     let cleaned = normalize_shape_text(text, true);
-    let glyph_points =
-        raster_text_points(document, &cleaned).unwrap_or_else(|_| raster_text_cells(&cleaned));
+    let char_count = cleaned.chars().count();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    let stack_words = layout == ShapeLayout::Single
+        && (words.len() > 1 || char_count > SINGLE_LINE_MAX_CHARS);
 
     match layout {
+        ShapeLayout::Single if stack_words => {
+            let n = words.len().max(1);
+            let total_height = 0.88f32;
+            let line_height = total_height / (n as f32);
+            for (i, word) in words.iter().enumerate() {
+                let word_points = raster_text_points(document, word)
+                    .unwrap_or_else(|_| raster_text_cells(word));
+                let center_y = 0.02 + total_height * 0.5 - (i as f32 + 0.5) * line_height;
+                push_text_stamp(&mut samples, &word_points, 0.0, center_y, 1.38, line_height * 0.95, 2);
+            }
+        }
         ShapeLayout::Single => {
+            let glyph_points =
+                raster_text_points(document, &cleaned).unwrap_or_else(|_| raster_text_cells(&cleaned));
             push_text_stamp(&mut samples, &glyph_points, 0.0, 0.02, 1.38, 0.88, 2);
         }
         ShapeLayout::Multi => {
+            let glyph_points =
+                raster_text_points(document, &cleaned).unwrap_or_else(|_| raster_text_cells(&cleaned));
             let placements: &[(f32, f32, f32, f32)] = &[
                 (-0.62, 0.34, 0.92, 0.42),
                 (0.57, 0.31, 0.78, 0.38),
@@ -3063,6 +3624,31 @@ fn js_err(msg: &str) -> JsValue {
 fn log_error(err: JsValue) {
     web_sys::console::error_1(&err);
 }
+
+// #region agent log
+fn debug_log(location: &str, message: &str, hypothesis_id: &str, data: &[(&str, f64)]) {
+    let _ = (|| -> Result<(), JsValue> {
+        let obj = js_sys::Object::new();
+        Reflect::set(&obj, &"sessionId".into(), &"759d2c".into())?;
+        Reflect::set(&obj, &"location".into(), &JsValue::from_str(location))?;
+        Reflect::set(&obj, &"message".into(), &JsValue::from_str(message))?;
+        Reflect::set(&obj, &"timestamp".into(), &js_sys::Date::now().into())?;
+        Reflect::set(&obj, &"hypothesisId".into(), &JsValue::from_str(hypothesis_id))?;
+        let data_obj = js_sys::Object::new();
+        for (k, v) in data {
+            Reflect::set(&data_obj, &(*k).into(), &JsValue::from_f64(*v))?;
+        }
+        Reflect::set(&obj, &"data".into(), &data_obj)?;
+        let json = js_sys::JSON::stringify(&obj)?;
+        let global = js_sys::global().dyn_into::<js_sys::Object>()?;
+        let log_fn = Reflect::get(&global, &"rustypartsDebugLog".into())?;
+        if let Some(f) = log_fn.dyn_ref::<js_sys::Function>() {
+            f.call1(&JsValue::NULL, &json)?;
+        }
+        Ok(())
+    })();
+}
+// #endregion
 
 struct Lcg {
     state: u64,

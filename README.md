@@ -9,6 +9,7 @@ Interactive particle-field app built with Rust + WebAssembly and rendered with W
 - Brush modes: push, pull, vortex
 - FX presets and color controls
 - Attractor controls and live particle count display
+- **Shareable moment**: one-shot link that plays once and melts away (see below)
 
 ## Run (Web)
 
@@ -39,6 +40,19 @@ cargo check
 - Enter: form shape text
 - M: melt shape
 - T: switch shape layout
+
+## Shareable moment (story mode)
+
+Share a link that plays **once** and then shows “This moment is gone.”
+
+- **URL**: `?m=1` for story mode; optional `&t=Your+Message` (up to 18 chars, forms then melts).
+- **Example**: `https://yoursite.com/?m=1&t=Hello` — opens to your message forming, holding, then melting; after that, reopening the same link in that browser shows only “This moment is gone.”
+- **OG/Twitter**: Basic meta tags are set for social previews.
+
+## Mobile
+
+- **Haptics**: Touch interactions trigger short vibration (light on touch, pattern on release burst). Form/Melt buttons trigger medium haptics. Requires a device and browser that support the Vibration API (e.g. Android Chrome; not supported in Safari).
+- **Tilt / motion**: Particles react to device orientation. Tilting the phone adds a gravity-like bias so the field responds to motion. Uses `devicemotion` (accelerometer); on iOS 13+ the browser may prompt for motion permission.
 
 ## Project Files
 

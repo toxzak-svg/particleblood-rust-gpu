@@ -291,6 +291,18 @@ button.is-active {
   flex-wrap: wrap;
 }
 
+.app-credits {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left, 0px));
+  bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  pointer-events: none;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  opacity: 0.72;
+}
+
 .text-entry-launcher {
   position: fixed;
   left: 50%;
@@ -452,4 +464,51 @@ button.is-active {
   .text-entry-card {
     width: 100%;
   }
+}
+
+/* Story mode: one-shot shareable moment */
+body[data-story-mode="true"] .hud,
+body[data-story-mode="true"] .app-credits,
+body[data-story-mode="true"] .text-entry-launcher,
+body[data-story-mode="true"] .text-entry-sheet {
+  display: none !important;
+}
+
+.story-gone {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg0);
+  color: var(--fg);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.6s ease, visibility 0.6s ease;
+}
+
+.story-gone.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.story-gone-title {
+  margin: 0;
+  font-size: clamp(1.25rem, 4vw, 1.75rem);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.story-gone-sub {
+  margin: 0.75rem 0 0;
+  font-size: clamp(0.9rem, 2.5vw, 1rem);
+  color: var(--muted);
+}
+
+#story-main.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
 }

@@ -4,11 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RustyParts</title>
-    <link rel="stylesheet" href="/styles-335e9087d9abe8c2.css" integrity="sha384-BDp4QoZ0M8rJkxy7tuDAGIKXq4x5JFpKfMUMbVXWWNvtrfMOATF3X7FmU7WVEZ0+"/>
+    <meta property="og:title" content="RustyParts — a moment" />
+    <meta property="og:description" content="Open to watch it once. Then it melts away forever." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="RustyParts — a moment" />
+    <meta name="twitter:description" content="Open to watch it once. Then it melts away forever." />
+    <link rel="stylesheet" href="/styles-5f97359f3785c95c.css" integrity="sha384-R8PzxiIbhtexigJfA4l8kNunm2mkTJjfA5JvdKaoUJCAVgDc8Ami1d3z8zpgsEg6"/>
     
 <script type="module">
-import init, * as bindings from '/rustyparts-ff641a7134873569.js';
-const wasm = await init({ module_or_path: '/rustyparts-ff641a7134873569_bg.wasm' });
+import init, * as bindings from '/rustyparts-f037bcce79d9cc6b.js';
+const wasm = await init({ module_or_path: '/rustyparts-f037bcce79d9cc6b_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -17,8 +23,51 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-  <link rel="modulepreload" href="/rustyparts-ff641a7134873569.js" crossorigin="anonymous" integrity="sha384-0jvR7Yggl0zx3Wdn0BeNIEcE5ek4mAntqCF4CGUUQKBDHPm/3LfR076RxzxgPyDX"><link rel="preload" href="/rustyparts-ff641a7134873569_bg.wasm" crossorigin="anonymous" integrity="sha384-SP745gjHbrlfCNjgDZHqfb31oP8YaGI5Ezx/Q0JY6sjtsHnigkbj5twc9K3OMo3+" as="fetch" type="application/wasm"></head>
+    <script>
+      (function() {
+        var KEY_PREFIX = 'rustyparts_seen_';
+        function storyKey() {
+          return KEY_PREFIX + (window.location.pathname || '') + (window.location.search || '') + (window.location.hash || '');
+        }
+        window.rustypartsShouldRunStory = function() {
+          try {
+            return !localStorage.getItem(storyKey());
+          } catch (e) {
+            return true;
+          }
+        };
+        window.rustypartsShowGone = function() {
+          var gone = document.getElementById('story-gone');
+          var main = document.getElementById('story-main');
+          if (gone) gone.classList.add('is-visible');
+          if (main) main.classList.add('is-hidden');
+        };
+        window.rustypartsOnStoryComplete = function() {
+          try {
+            localStorage.setItem(storyKey(), '1');
+          } catch (e) {}
+          window.rustypartsShowGone();
+        };
+        document.addEventListener('DOMContentLoaded', function() {
+          if (/[?&]m=1(?:&|$)/i.test(window.location.search || '')) {
+            document.body.dataset.storyMode = 'true';
+          }
+        });
+        window.rustypartsDebugLog = function(payload) {
+          try {
+            var body = typeof payload === 'string' ? payload : JSON.stringify(payload);
+            fetch('http://127.0.0.1:7698/ingest/f1a79e5b-a905-4d9d-bb11-de0538786a7f', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '759d2c' },
+              body: body
+            }).catch(function() {});
+          } catch (e) {}
+        };
+      })();
+    </script>
+  <link rel="modulepreload" href="/rustyparts-f037bcce79d9cc6b.js" crossorigin="anonymous" integrity="sha384-PRLCtlB9ZI8t9WLw73mQttTl72MiTZTJjTDakowzWl18nEkCXtIYKsvcXMpfzvHU"><link rel="preload" href="/rustyparts-f037bcce79d9cc6b_bg.wasm" crossorigin="anonymous" integrity="sha384-bFI1sCuuiHLMMq4dXeFIIpCkOygca/5hAMhxO9DqVzgz1za+sGI5CfRi/Jny1bdP" as="fetch" type="application/wasm"></head>
   <body>
+    <div id="story-main">
     <canvas id="app" aria-label="Interactive particle field"></canvas>
     <div class="hud">
       <div class="panel is-collapsed" id="controlPanel">
@@ -95,6 +144,10 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
       </div>
     </div>
 
+    <div class="app-credits" aria-hidden="true">
+      <span id="footerParticleCount">0</span> · Powered by Rust · ZWM
+    </div>
+
     <div class="text-entry-launcher">
       <button
         type="button"
@@ -126,6 +179,12 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
           <button type="button" id="textEntryApply">Form</button>
         </div>
       </div>
+    </div>
+    </div>
+
+    <div id="story-gone" class="story-gone" aria-live="polite" aria-hidden="true">
+      <p class="story-gone-title">This moment is gone.</p>
+      <p class="story-gone-sub">It was only for you, once.</p>
     </div>
   <script>"use strict";
 

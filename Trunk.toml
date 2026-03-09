@@ -1,0 +1,4 @@
+# Disable live reload so the page doesn't keep refreshing.
+# Remove or set to false if you want reload-on-save during development.
+[serve]
+no_autoreload = true
