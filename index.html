@@ -41,6 +41,22 @@
           if (/[?&]m=1(?:&|$)/i.test(window.location.search || '')) {
             document.body.dataset.storyMode = 'true';
           }
+          function doShare(btn) {
+            var url = window.location.href;
+            var title = document.title || 'RustyParts';
+            var text = 'A moment — open to watch once, then it melts away.';
+            if (navigator.share) {
+              navigator.share({ url: url, title: title, text: text }).catch(function() {});
+            } else {
+              navigator.clipboard.writeText(url).then(function() {
+                if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Share'; }, 1500); }
+              }).catch(function() {});
+            }
+          }
+          ['shareBtnMain', 'shareBtnGone'].forEach(function(id) {
+            var btn = document.getElementById(id);
+            if (btn) btn.addEventListener('click', function() { doShare(btn); });
+          });
         });
         window.rustypartsDebugLog = function(payload) {
           try {
@@ -59,6 +75,7 @@
     <div id="story-main">
     <canvas id="app" aria-label="Interactive particle field"></canvas>
     <div class="hud">
+      <button type="button" id="shareBtnMain" class="share-btn share-btn-main" aria-label="Share link">Share</button>
       <div class="panel is-collapsed" id="controlPanel">
         <div class="panel-head">
           <div class="panel-title">Controls</div>
@@ -174,6 +191,7 @@
     <div id="story-gone" class="story-gone" aria-live="polite" aria-hidden="true">
       <p class="story-gone-title">This moment is gone.</p>
       <p class="story-gone-sub">It was only for you, once.</p>
+      <button type="button" id="shareBtnGone" class="share-btn" aria-label="Share">Share</button>
     </div>
   </body>
 </html>

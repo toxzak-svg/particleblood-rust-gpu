@@ -6,7 +6,7 @@ use js_sys::{Float32Array, Math, Reflect};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    CanvasRenderingContext2d, DeviceMotionEvent, Document, Element, Event, EventTarget,
+    CanvasRenderingContext2d, Document, Element, Event, EventTarget,
     HtmlCanvasElement, HtmlElement, HtmlInputElement, KeyboardEvent, MouseEvent,
     PointerEvent, WebGl2RenderingContext as GL, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject, WheelEvent, Window,
@@ -57,8 +57,10 @@ const TOUCH_ATTRACT_WAVE_A_HZ: f32 = 1.7;
 const TOUCH_ATTRACT_WAVE_B_HZ: f32 = 4.2;
 const TOUCH_ATTRACT_WAVE_BLEND: f32 = 0.36;
 const TOUCH_BURST_MIN_HOLD_S: f64 = 0.55;
-/// Gravity scale: map device g (m/s²) to NDC acceleration. ~0.06 gives subtle tilt.
+/// Gravity scale: map device g (m/s²) to NDC acceleration. ~0.06 gives subtle tilt. (Unused when devicemotion is disabled.)
+#[allow(dead_code)]
 const TILT_GRAVITY_SCALE: f32 = 0.06;
+#[allow(dead_code)]
 const TILT_SMOOTH: f32 = 0.14;
 const TOUCH_BURST_FULL_HOLD_S: f64 = 3.2;
 const TOUCH_BURST_DURATION_S: f64 = 1.15;
@@ -1733,7 +1735,8 @@ impl App {
         self.clear_touch_hold();
     }
 
-    /// Update tilt from device acceleration (including gravity). x/y/z in m/s²; smoothed.
+    /// Update tilt from device acceleration (including gravity). x/y/z in m/s²; smoothed. (Unused when devicemotion is disabled.)
+    #[allow(dead_code)]
     fn on_device_motion(&mut self, gx: Option<f64>, gy: Option<f64>, gz: Option<f64>) {
         let gx = gx.unwrap_or(0.0) as f32;
         let _gy = gy.unwrap_or(0.0) as f32;
@@ -2611,23 +2614,6 @@ fn attach_listeners(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
             }
         }));
         window.add_event_listener_with_callback("resize", cb.as_ref().unchecked_ref())?;
-        cb.forget();
-    }
-
-    {
-        let app2 = app.clone();
-        let cb = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |e: Event| {
-            if let Ok(ev) = e.dyn_into::<DeviceMotionEvent>() {
-                if let Some(acc) = ev.acceleration_including_gravity() {
-                    app2.borrow_mut().on_device_motion(
-                        acc.x(),
-                        acc.y(),
-                        acc.z(),
-                    );
-                }
-            }
-        }));
-        window.add_event_listener_with_callback("devicemotion", cb.as_ref().unchecked_ref())?;
         cb.forget();
     }
 

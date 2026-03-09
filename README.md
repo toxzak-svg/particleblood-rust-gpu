@@ -52,7 +52,7 @@ Share a link that plays **once** and then shows “This moment is gone.”
 ## Mobile
 
 - **Haptics**: Touch interactions trigger short vibration (light on touch, pattern on release burst). Form/Melt buttons trigger medium haptics. Requires a device and browser that support the Vibration API (e.g. Android Chrome; not supported in Safari).
-- **Tilt / motion**: Particles react to device orientation. Tilting the phone adds a gravity-like bias so the field responds to motion. Uses `devicemotion` (accelerometer); on iOS 13+ the browser may prompt for motion permission.
+- **Share**: Use the Share button to share the link (Web Share API when available, otherwise copy link). No permissions required.
 
 ## Project Files
 
