@@ -1755,7 +1755,7 @@ function trailStep() {
   gl.uniform1i(getUniform(particleProgram, "uVelTex"), 1);
   gl.uniform2f(getUniform(particleProgram, "uResolution"), res.width, res.height);
   // Make particles bigger for better visibility
-  const pointScale = Math.max(2.5, Math.min(5.5, state.dpr * 2.8 * q.pointScaleMul));
+  const pointScale = Math.max(2.8, Math.min(6.2, state.dpr * 3.2 * q.pointScaleMul));
   gl.uniform1f(getUniform(particleProgram, "uPointScale"), pointScale);
   gl.uniform1f(getUniform(particleProgram, "uTime"), state.time);
   gl.uniform1i(getUniform(particleProgram, "uMood"), moodIndex());

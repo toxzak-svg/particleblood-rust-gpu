@@ -1571,7 +1571,7 @@ impl App {
         let breathe = 1.0 + 0.08 * (self.state.time as f32 * 0.9).sin();
         let motion_boost = 1.0 + pointer_speed * 0.035;
         let point_scale = (self.state.dpr as f32
-            * 3.4
+            * 3.9
             * quality_preset(self.state.quality).point_scale_mul
             * breathe
             * motion_boost)
