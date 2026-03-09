@@ -134,7 +134,7 @@ const state = {
     targetMix: 1,
     releaseAt: 0,
     duration: 2.3,
-    tapHoldDuration: 0.9,
+    tapHoldDuration: 1.4,
     dirty: true,
   },
   color: {
@@ -534,7 +534,9 @@ void main() {
     float fall = exp(-dist2 * 4.0);
     acc += d * (uShape.x * uShape.y);
     acc += vec2(-d.y, d.x) * (uShape.x * uShape.z * (0.2 + 0.8 * fall));
-    v *= mix(1.0, 0.965, saturate(uShape.x) * fall);
+    float wobble = 0.022 * sin(uTime * 1.15 + phase * 6.2831 + seed * 2.1) * uShape.x;
+    acc += vec2(-d.y, d.x) * wobble;
+    v *= mix(1.0, 0.965, saturate(uShape.x) * fall * 0.6);
   }
 
   // Subtle damping and speed clamp keep the field readable and stable.

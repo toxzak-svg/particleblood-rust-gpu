@@ -42,7 +42,7 @@ const SHAPE_FORM_DURATION_S: f64 = 2.3;
 const INTRO_TITLE: &str = "RUSTY PARTS";
 const DEFAULT_SHAPE_TEXT: &str = "Touch!";
 const INTRO_FADE_IN_S: f64 = 0.0;
-const INTRO_HOLD_S: f64 = 0.9;
+const INTRO_HOLD_S: f64 = 1.4;
 const INTRO_MELT_S: f64 = 0.7;
 const INTRO_BURST_STRENGTH: f32 = 4.2;
 const INTRO_BURST_COUNT: usize = 20;
@@ -435,7 +435,12 @@ void main() {
     float orbitFade = 1.0 - clamp(settle * near * 0.9, 0.0, 0.9);
     acc += vec2(-d.y, d.x) * (uShape.x * uShape.z * (0.2 + 0.8 * fall) * orbitFade);
 
+    // When the word is formed, add a gentle constant wobble so particles keep moving.
+    float wobble = 0.022 * sin(t * 1.15 + phase * 6.2831 + seed * 2.1) * uShape.x;
+    acc += vec2(-d.y, d.x) * wobble;
+
     float velDamp = clamp((0.020 + 0.060 * near) * uShape.x * (0.4 + 0.6 * settle), 0.0, 0.16);
+    velDamp *= mix(1.0, 0.5, settle);
     v *= (1.0 - velDamp);
 
     vec2 dirToTarget = d / max(sqrt(dist2), 1e-4);
