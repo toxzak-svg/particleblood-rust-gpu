@@ -38,10 +38,38 @@
           window.rustypartsShowGone();
         };
         document.addEventListener('DOMContentLoaded', function() {
-          if (/[?&]m=1(?:&|$)/i.test(window.location.search || '')) {
+          // Parse URL parameters
+          var params = new URLSearchParams(window.location.search);
+          var isStoryMode = params.get('m') === '1' || params.get('m') === 'true';
+          var storyText = params.get('t') || '';
+          
+          if (isStoryMode) {
             document.body.dataset.storyMode = 'true';
+            // Call Rust to initialize story mode
+            if (window.wasm_bindgen && window.wasm_bindgen.initStoryMode) {
+              window.wasm_bindgen.initStoryMode(storyText, true);
+            }
           }
+          
           function doShare(btn) {
+            // Get current shape text from Rust
+            var currentText = '';
+            if (window.wasm_bindgen && window.wasm_bindgen.getCurrentShapeText) {
+              currentText = window.wasm_bindgen.getCurrentShapeText();
+            }
+            
+            // Generate shareable URL
+            var baseUrl = window.location.origin + window.location.pathname;
+            var shareUrl = baseUrl + '?m=1';
+            if (currentText) {
+              shareUrl += '&t=' + encodeURIComponent(currentText);
+            }
+            
+            var title = document.title || 'RustyParts';
+            var text = 'A moment — open to watch once, then it melts away.';
+            if (navigator.share) {
+              navigator.share({ url: shareUrl, title: title, text: text }).catch(function() {});
+            } else {
             var url = window.location.href;
             var title = document.title || 'RustyParts';
             var text = 'A moment — open to watch once, then it melts away.';

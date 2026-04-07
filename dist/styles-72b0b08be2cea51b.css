@@ -508,6 +508,26 @@ body[data-story-mode="true"] .text-entry-sheet {
   color: var(--muted);
 }
 
+.share-btn {
+  pointer-events: auto;
+  margin-top: 1.25rem;
+  padding: 10px 20px;
+  border-color: rgba(45, 255, 154, 0.4);
+  background: rgba(45, 255, 154, 0.12);
+}
+
+.share-btn:hover {
+  border-color: rgba(45, 255, 154, 0.6);
+  background: rgba(45, 255, 154, 0.18);
+}
+
+.share-btn-main {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  margin-top: 0;
+}
+
 #story-main.is-hidden {
   visibility: hidden;
   pointer-events: none;

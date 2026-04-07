@@ -27,6 +27,18 @@ pub fn init_story_mode(message: &str, story_mode: bool) {
     });
 }
 
+/// Get the current shape text for sharing. Returns empty string if no app.
+#[wasm_bindgen(js_name = getCurrentShapeText)]
+pub fn get_current_shape_text() -> String {
+    APP_HOLDER.with(|holder| {
+        if let Some(app) = holder.borrow().as_ref() {
+            app.borrow().state.shape.text.clone()
+        } else {
+            String::new()
+        }
+    })
+}
+
 struct StoryInit {
     message: String,
     story_mode: bool,
@@ -894,7 +906,6 @@ impl App {
             },
         };
 
-        parse_story_mode_from_url(&mut app);
         STORY_INIT.with(|cell| {
             if let Some(init) = cell.borrow_mut().take() {
                 if init.story_mode {
@@ -2757,64 +2768,6 @@ where
         cb.forget();
     }
     Ok(())
-}
-
-fn parse_story_mode_from_url(app: &mut App) {
-    let search = match app.window.location().search() {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-    let search = search.trim_start_matches('?');
-    let mut story = false;
-    let mut text = String::new();
-    for part in search.split('&') {
-        if let Some((k, v)) = part.split_once('=') {
-            if k == "m" && (v == "1" || v.eq_ignore_ascii_case("true")) {
-                story = true;
-            } else if k == "t" {
-                text = percent_decode_query(v);
-            }
-        }
-    }
-    if story {
-        app.state.story_mode = true;
-        let msg = normalize_shape_text(&text, false);
-        app.state.shape.text = if msg.is_empty() {
-            INTRO_TITLE.to_string()
-        } else {
-            msg
-        };
-    }
-}
-
-fn percent_decode_query(input: &str) -> String {
-    let mut out = String::new();
-    let mut bytes = input.bytes();
-    while let Some(b) = bytes.next() {
-        if b == b'+' {
-            out.push(' ');
-        } else if b == b'%' {
-            let h = bytes.next().and_then(|c| hex_val(c));
-            let l = bytes.next().and_then(|c| hex_val(c));
-            if let (Some(hi), Some(lo)) = (h, l) {
-                out.push((hi << 4 | lo) as char);
-            } else {
-                out.push('%');
-            }
-        } else {
-            out.push(b as char);
-        }
-    }
-    out
-}
-
-fn hex_val(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        _ => None,
-    }
 }
 
 fn invoke_should_run_story() -> bool {
