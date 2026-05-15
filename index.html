@@ -13,7 +13,7 @@
     <link data-trunk rel="css" href="./styles.css" />
     <link data-trunk rel="rust" href="./Cargo.toml" />
     <script>
-      (function() {
+      function() {
         var KEY_PREFIX = 'rustyparts_seen_';
         function storyKey() {
           return KEY_PREFIX + (window.location.pathname || '') + (window.location.search || '') + (window.location.hash || '');
@@ -37,7 +37,7 @@
           } catch (e) {}
           window.rustypartsShowGone();
         };
-        document.addEventListener('DOMContentLoaded', function() {
+        let newVar = document.addEventListener('DOMContentLoaded', function() {
           // Parse URL parameters
           var params = new URLSearchParams(window.location.search);
           var isStoryMode = params.get('m') === '1' || params.get('m') === 'true';
@@ -85,6 +85,25 @@
             var btn = document.getElementById(id);
             if (btn) btn.addEventListener('click', function() { doShare(btn); });
           });
+
+          // Onboarding overlay
+          if (!isStoryMode) {
+            var onboarding = document.getElementById('onboarding');
+            if (onboarding) {
+              var shownKey = 'rustyparts_help_shown';
+              var alreadyShown = false;
+              try { alreadyShown = sessionStorage.getItem(shownKey); } catch (e) {}
+              if (!alreadyShown) {
+                setTimeout(function() {
+                  onboarding.setAttribute('aria-hidden', 'false');
+                }, 2200);
+                onboarding.addEventListener('click', function() {
+                  onboarding.setAttribute('aria-hidden', 'true');
+                  try { sessionStorage.setItem(shownKey, '1'); } catch (e) {}
+                });
+              }
+            }
+          }
         });
         window.rustypartsDebugLog = function(payload) {
           try {
@@ -214,6 +233,21 @@
         </div>
       </div>
     </div>
+    </div>
+
+    <div id="onboarding" class="onboarding-overlay" aria-hidden="true">
+      <div class="onboarding-tip onboarding-tip-canvas">
+        <div class="onboarding-bubble">
+          <div class="onboarding-line"><strong>Move</strong> to paint</div>
+          <div class="onboarding-line"><strong>Hold</strong> to attract</div>
+          <div class="onboarding-line"><strong>Tap</strong> to toggle</div>
+        </div>
+      </div>
+      <div class="onboarding-tip onboarding-tip-dot">
+        <div class="onboarding-bubble">
+          <strong>Tap</strong> the dot to change the word
+        </div>
+      </div>
     </div>
 
     <div id="story-gone" class="story-gone" aria-live="polite" aria-hidden="true">
